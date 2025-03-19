@@ -9,6 +9,8 @@ A CLI tool that helps find the best electronic components from Mouser Electronic
 - Context-aware recommendations (e.g., specific microcontroller compatibility)
 - Clean, scriptable output format
 - Detailed verbose mode for debugging
+- Generate BOMs from project requirements
+- Process existing BOMs to find Mouser parts
 
 ## Installation
 
@@ -31,7 +33,7 @@ CLAUDE_API_KEY=your_claude_api_key
 
 ## Usage
 
-Basic usage:
+### Basic Part Search
 ```bash
 python mouser_search.py --query "500ohm 0805 resistor"
 ```
@@ -46,11 +48,32 @@ Verbose mode for detailed information:
 python mouser_search.py --query "500ohm 0805 resistor" -v
 ```
 
+### BOM Processing
+Process an existing BOM to find Mouser parts:
+```bash
+python bom_processor.py input_bom.csv "Project description" output_bom.csv
+```
+
+### BOM Generation
+Generate a BOM from project requirements:
+```bash
+python bom_generator.py -r requirements.txt
+```
+
 ### Command Line Arguments
 
+#### mouser_search.py
 - `-q, --query`: Search query (required)
 - `-c, --context`: Context for part selection (optional)
 - `-v, --verbose`: Print detailed information about the part selection
+
+#### bom_processor.py
+- Input BOM CSV file (required)
+- Project description (required)
+- Output BOM CSV file (required)
+
+#### bom_generator.py
+- `-r, --requirements`: Requirements text file (required)
 
 ## Output
 
@@ -65,6 +88,14 @@ With verbose mode (`-v`), you'll see:
 - Claude's reasoning for part selection
 - Detailed part information
 - Price and availability
+
+BOM files are output in CSV format with columns:
+- Reference
+- Value
+- Description
+- Footprint
+- Quantity
+- MouserPartNumber
 
 ## Development
 
