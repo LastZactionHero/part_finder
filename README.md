@@ -14,7 +14,7 @@ A CLI tool that helps find the best electronic components from Mouser Electronic
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/part_finder.git
+git clone https://github.com/LastZactionHero/part_finder.git
 cd part_finder
 ```
 
