@@ -70,7 +70,7 @@ def process_queue():
             project_name = get_next_project()
             if not project_name:
                 logger.info("No projects to process, waiting...")
-                time.sleep(60)  # Wait 1 minute before checking again
+                time.sleep(1)  # Wait 1 minute before checking again
                 continue
             
             logger.info(f"Processing project: {project_name}")
@@ -86,7 +86,7 @@ def process_queue():
                 finished_path.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(queue_path), str(finished_path))
                 create_results_file(
-                    finished_path / project_name,
+                    finished_path,
                     "failed",
                     datetime.now(),
                     datetime.now()
@@ -122,11 +122,15 @@ def process_queue():
             
             # Move to finished directory
             finished_path.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(queue_path), str(finished_path))
+            # Move contents instead of the directory itself
+            for item in queue_path.iterdir():
+                shutil.move(str(item), str(finished_path))
+            # Remove the now empty queue directory
+            queue_path.rmdir()
             
             # Create results file
             create_results_file(
-                finished_path / project_name,
+                finished_path,
                 status,
                 start_time,
                 end_time

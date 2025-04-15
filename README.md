@@ -204,4 +204,190 @@ python -m pytest tests/
 
 ## License
 
-[Your chosen license] 
+[Your chosen license]
+
+# PCB Part Finder API Documentation
+
+## Base URL
+```
+http://localhost:8000
+```
+
+## Endpoints
+
+### 1. Create a New Project
+```
+POST /project
+```
+
+Creates a new project with a BOM (Bill of Materials) for processing.
+
+**Request Body:**
+```json
+{
+  "components": [
+    {
+      "qty": 1,
+      "description": "10k 1% 0805 resistor",
+      "possible_mpn": "RC0805FR-0710KL",
+      "package": "0805",
+      "notes": "Precision voltage divider"
+    }
+  ],
+  "project_description": "My Project"
+}
+```
+
+**Response:**
+```json
+{
+  "project_id": "20250415_154254_z6tb",
+  "truncation_info": null
+}
+```
+
+**Notes:**
+- Maximum of 20 components per BOM (will be truncated if exceeded)
+- `truncation_info` will contain a message if truncation occurred
+- Project ID format: `YYYYMMDD_HHMMSS_XXXX` where XXXX is a random 4-character string
+
+### 2. Get Project Status
+```
+GET /project/{project_id}
+```
+
+Retrieves the current status and details of a project.
+
+**Response (Queued Status):**
+```json
+{
+  "status": "queued",
+  "position": 1,
+  "total_in_queue": 1,
+  "bom": {
+    "components": [
+      {
+        "qty": 1,
+        "description": "10k 1% 0805 resistor",
+        "possible_mpn": "RC0805FR-0710KL",
+        "package": "805",
+        "notes": "Precision voltage divider"
+      }
+    ],
+    "project_description": "My Project"
+  }
+}
+```
+
+**Response (Finished Status):**
+```json
+{
+  "status": "finished",
+  "bom": {
+    "components": [
+      {
+        "qty": 1,
+        "description": "10k 1% 0805 resistor",
+        "possible_mpn": "RC0805FR-0710KL",
+        "package": "805",
+        "notes": "Precision voltage divider",
+        "mouser_part_number": "603-RC0805FR-0710KL",
+        "manufacturer_part_number": "RC0805FR-0710KL",
+        "manufacturer_name": "YAGEO",
+        "mouser_description": "Thick Film Resistors - SMD 10 kOhms 125 mW 0805 1%",
+        "datasheet_url": "https://www.mouser.com/datasheet/2/447/YAGEO_PYu_RC_Group_51_RoHS_L_12-3313492.pdf",
+        "price": 0.14,
+        "availability": "In Stock",
+        "match_status": "Matched"
+      }
+    ],
+    "project_description": "My Project",
+    "match_date": "2025-04-15T15:43:06.907602",
+    "match_status": "complete"
+  },
+  "results": {
+    "status": "complete",
+    "start_time": "2025-04-15T15:42:55.110870",
+    "end_time": "2025-04-15T15:43:06.907602"
+  }
+}
+```
+
+**Notes:**
+- Status can be either "queued" or "finished"
+- For queued projects, includes position in queue and total queue length
+- For finished projects, includes complete matching results and processing timestamps
+- Returns 404 if project not found
+
+### 3. Delete Project
+```
+DELETE /project/{project_id}
+```
+
+Deletes a project from the queue (only works for queued projects).
+
+**Response:**
+```json
+{
+  "status": "deleted"
+}
+```
+
+**Notes:**
+- Returns 404 if project not found in queue
+- Cannot delete finished projects
+
+### 4. Get Queue Length
+```
+GET /queue_length
+```
+
+Returns the current number of projects in the processing queue.
+
+**Response:**
+```json
+{
+  "queue_length": 1
+}
+```
+
+## Error Responses
+
+All endpoints may return the following error responses:
+
+- `404 Not Found`: Project does not exist
+- `500 Internal Server Error`: Server-side processing error
+
+## Processing Details
+
+1. Projects are processed in the order they are received
+2. Each project goes through the following stages:
+   - Queued: Project is waiting to be processed
+   - Processing: Project is being matched with Mouser parts
+   - Finished: Project has completed processing (success or failure)
+
+3. Processing includes:
+   - Part matching with Mouser's catalog
+   - Price and availability checking
+   - Datasheet URL retrieval
+   - Manufacturer information lookup
+
+4. Results are stored in the following format:
+   - Original BOM information
+   - Matched Mouser part numbers
+   - Manufacturer details
+   - Pricing information
+   - Availability status
+   - Processing timestamps
+
+## Rate Limits
+
+- No explicit rate limits on the API
+- However, the underlying Mouser API has rate limits that may affect processing speed
+- Projects are processed sequentially to avoid overwhelming external APIs
+
+## Environment Requirements
+
+The API requires the following environment variables:
+- `MOUSER_API_KEY`: API key for Mouser's catalog
+- `ANTHROPIC_API_KEY`: API key for the LLM service 
