@@ -1,0 +1,6 @@
+Qty,Description,Possible MPN,Package,Notes/Source
+1,"1,""ESP32 Wi-Fi/BT Module, 8MB Flash, 2MB PSRAM"",ESP32-WROOM-32E-N8R2,RF_Module:ESP32-WROOM-32E,""Sufficient for MP3, SMT. Use Espressif KiCad Lib. Verify footprint.""",,,Invalid row format
+1,"1,""LDO Voltage Regulator, 3.3V, 1A"",AMS1117-3.3,Package_TO_SOT_SMD:SOT-223-3,""Common LDO, requires caps.""",,,Invalid row format
+1,"1 little red smd led, the little kind you'd find on an Arduino to tell you it's powered on",,,Invalid row format
+1,25 individual cherry mx keys that I can solder on for a custom keyboard,,,Invalid row format
+1,"6 0.1uf ceramic caps, 0805",,,Invalid row format

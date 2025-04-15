@@ -29,7 +29,7 @@ def get_api_key() -> Optional[str]:
         raise MouserApiError("Mouser API key not found")
     return api_key
 
-def search_mouser_by_keyword(keyword: str, records: int = 5) -> List[Dict[str, Any]]:
+def search_mouser_by_keyword(keyword: str, records: int = 10) -> List[Dict[str, Any]]:
     """Search for parts using a keyword.
     
     Args:

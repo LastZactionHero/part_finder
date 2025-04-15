@@ -1,0 +1,8 @@
+Qty,Description,Possible MPN,Package,Notes/Source
+1,"1,""ESP32 Wi-Fi/BT Module, 8MB Flash, 2MB PSRAM"",ESP32-WROOM-32E-N8R2,RF_Module:ESP32-WROOM-32E,""Sufficient for MP3, SMT. Use Espressif KiCad Lib. Verify footprint.""",,,Invalid row format
+1,"1,""USB Type-C Receptacle, 2.0, 16-pin, Horiz, SMT w/ posts"",UJ20-C-H-G-SMT-4-P16-TR,Connector_USB:USB_C_Receptacle_...,""SameSky, 5A, 48V. Find/verify footprint.""",,,Invalid row format
+1,"1,USB-to-UART Bridge,CP2102N-A02-GQFN24,Package_DFN_QFN:QFN-24-1EP_...,""Silicon Labs, Integrated Osc.. Find/verify footprint.""",,,Invalid row format
+1,"1,""LDO Voltage Regulator, 3.3V, 1A"",AMS1117-3.3,Package_TO_SOT_SMD:SOT-223-3,""Common LDO, requires caps.""",,,Invalid row format
+1,1 little red smd led,,,Invalid row format
+1,"25 cherry mx keys, soldered on",,,Invalid row format
+1,"6 0.1uf ceramic caps, 0805",,,Invalid row format

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PCB Part Finder</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>PCB Part Finder</h1>
+            <p class="description">Upload your component list and get matched Mouser parts automatically</p>
+            <div class="project-info">
+                <p>Mapping PCB components to actual products is a pain. This aims to simplify the process: provide a rough component list automatically match it to appropriate Mouser parts.<p>
+                <hr/><br/>
+                <p>Not working? Feature request? Improvement ideas? <a href="https://github.com/LastZactionHero/part_finder/issues" target="_blank" rel="noopener noreferrer">Open an issue on GitHub</a></p>
+                <p>Working great? Saved you a bunch of time? <a href="https://www.buymeacoffee.com/lastzactionhero" target="_blank" rel="noopener noreferrer">Buy me a coffee</a></p>
+            </div>
+            <div class="queue-info">
+                <span>Queue Status: </span>
+                <span id="queueLength">Loading...</span>
+            </div>
+        </header>
+
+        <main>
+            <div class="upload-section">
+                <h2>Upload Component List</h2>
+                <p><b>Feeling lazy?</b> Me too. Don't worry about getting the CSV right, we'll use the magic of computers to clean it up.</p>
+                <textarea id="componentInput">Qty,Description,Possible MPN,Package,Notes/Source
+1,"ESP32 Wi-Fi/BT Module, 8MB Flash, 2MB PSRAM",ESP32-WROOM-32E-N8R2,RF_Module:ESP32-WROOM-32E,"Sufficient for MP3, SMT. Use Espressif KiCad Lib. Verify footprint."
+1,"LDO Voltage Regulator, 3.3V, 1A",AMS1117-3.3,Package_TO_SOT_SMD:SOT-223-3,"Common LDO, requires caps."
+1 little red smd led, the little kind you'd find on an Arduino to tell you it's powered on
+25 individual cherry mx keys that I can solder on for a custom keyboard
+6 0.1uf ceramic caps, 0805</textarea>
+                <button id="submitButton">Submit</button>
+            </div>
+
+            <div id="statusSection" class="hidden">
+                <h2>Processing Status</h2>
+                <div id="statusMessage"></div>
+            </div>
+
+            <div id="resultsSection" class="hidden">
+                <h2>Matched Parts</h2>
+                <div class="table-container">
+                    <table id="resultsTable">
+                        <thead>
+                            <tr>
+                                <th>Qty</th>
+                                <th>Description</th>
+                                <th>Mouser Part</th>
+                                <th>Manufacturer</th>
+                                <th>Price</th>
+                                <th>Availability</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html> 

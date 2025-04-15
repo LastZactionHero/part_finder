@@ -208,6 +208,8 @@ python -m pytest tests/
 
 # PCB Part Finder API Documentation
 
+Starting the API: python -m pcb_part_finder.api
+
 ## Base URL
 ```
 http://localhost:8000

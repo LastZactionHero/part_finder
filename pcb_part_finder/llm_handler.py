@@ -73,6 +73,7 @@ Here is the input for the current part:
 Description: {part_info.get('Description', '')}
 Possible MPN: {part_info.get('Possible MPN', '')}
 Package: {part_info.get('Package', '')}
+Other Usage Notes: {part_info.get('Notes/Source', '')}
 
 Generate the search terms as a comma-separated list."""
 

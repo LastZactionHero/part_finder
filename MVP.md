@@ -1,11 +1,15 @@
-Right now, this is a script that identifies good parts for a PCB project with Mouse and Claude. It runs a single turn, taking an input project and outputting a single CSV.
+I'd like you to create a web front-end for the project described in README.md.
 
-I'd like to create a very bare bones MVP for this. In a full system, we'd probably set up queues for all of this, but I'm just trying to go fast to get insight if it's useful for users.
+This should be a simple, single-page web app to take a table of components and return a BOM with Mouser part ids. This is a rough MVP, just to test interest.
 
-I'd like you to modify the main script to sequentially process a queue:
+- Title and description of the page
+- Displays the number of items in the queue
+- A text box that lets the user input components as a CSV
+- A button to submit
+- Shows an error message if one occurs
+- If successful, stores the project id, updates the URL bar
+- Polls the current project ID
+- If queued, polls every 10 seconds until finished, showing the position in the queue
+- If finished, shows the full BOM.
+- For each part with a valid Mouser Part ID, shows a links with URL "https://www.mouser.com/ProductDetail/<Mouser Part ID>"
 
-- Polls /projects/queue
-- Picks the earliest, sorted alphabetically
-- Processes the files (intial_bom.csv and project_details.txt)
-- Moves to /projects/finished when done
-- Adds a results.json file, that includes "status:" "complete" or "failed", and start/finish timestamp
