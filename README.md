@@ -18,6 +18,7 @@ The tool takes an input CSV file containing part descriptions and uses a two-pas
   - Availability and pricing
   - Package compatibility
   - Manufacturer preferences
+- Queue-based processing system for multiple projects
 - Detailed output CSV with comprehensive part information
 - Robust error handling and logging
 
@@ -42,110 +43,165 @@ pip install -r requirements.txt
 ```
 
 3. Set up environment variables:
-```bash
-export MOUSER_API_KEY="your_mouser_api_key"
-export ANTHROPIC_API_KEY="your_anthropic_api_key"
+Create a `.env` file in the project root with:
+```
+MOUSER_API_KEY="your_mouser_api_key"
+CLAUDE_API_KEY="your_anthropic_api_key"
 ```
 
-## Usage
+## Project Structure
 
-The tool is run from the command line with the following arguments:
-
-```bash
-python part_finder.py --input <input_csv_path> --notes <project_notes_path>
+### Directory Layout
+```
+part_finder/
+├── pcb_part_finder/          # Main package directory
+│   ├── main.py              # Main processing logic
+│   ├── data_loader.py       # Input file handling
+│   ├── output_writer.py     # Output file handling
+│   ├── mouser_api.py        # Mouser API integration
+│   └── llm_handler.py       # LLM integration
+├── projects/                # Project directories
+│   ├── queue/              # Projects waiting to be processed
+│   └── finished/           # Completed projects
+├── tests/                  # Test suite
+├── data/                   # Sample data and test files
+├── .env                    # Environment variables
+└── requirements.txt        # Python dependencies
 ```
 
-### Arguments
+### Projects Directory Structure
 
-- `--input`: Path to the input CSV file containing part descriptions
-- `--notes`: Path to the project notes file containing requirements and constraints
+The `projects` directory contains two main subdirectories:
 
-### Input CSV Format
+1. `queue/`: Contains projects waiting to be processed
+2. `finished/`: Contains completed projects
 
-The input CSV should have the following columns:
+Each project is a directory with the following structure:
+```
+projects/
+├── queue/
+│   └── project_name/
+│       ├── initial_bom.csv        # Input BOM file
+│       └── project_details.txt    # Project notes and requirements
+└── finished/
+    └── project_name/
+        ├── initial_bom.csv        # Original input BOM
+        ├── project_details.txt    # Original project notes
+        ├── bom_matched.csv        # Generated output
+        └── results.json           # Processing results
+```
+
+### File Formats
+
+#### initial_bom.csv
+Required columns:
 - `Qty`: Quantity needed
 - `Description`: Part description
 - `Possible MPN`: Manufacturer part number (if known)
 - `Package`: Package type
 - `Notes/Source`: Additional notes or source information
 
-### Output
+Example:
+```csv
+Qty,Description,Possible MPN,Package,Notes/Source
+1,10k 1% 0805 resistor,RC0805FR-0710KL,0805,Precision voltage divider
+2,100nF 16V X7R capacitor,CL21B104KBCNNNC,0805,Power supply decoupling
+```
 
-The tool generates a `bom_matched.csv` file containing:
-- Original input data
-- Matched Mouser part information
-- Match status
-- Detailed part specifications
-- Pricing and availability information
+#### project_details.txt
+Plain text file containing project requirements and constraints. Should include:
+- Project description
+- Key requirements
+- Special considerations
+- Manufacturer preferences
+- Any other relevant information
+
+Example:
+```
+Project: Temperature Sensor Board
+Requirements:
+- Industrial temperature range (-40°C to +85°C)
+- Low power consumption
+- High accuracy (±0.5°C)
+- RoHS compliant
+
+Special Considerations:
+- Prefer Texas Instruments for analog components
+- Need long lead time parts ordered first
+- Budget conscious design
+```
+
+#### results.json
+Generated after processing, contains:
+```json
+{
+    "status": "complete" | "failed",
+    "start_time": "ISO-8601 timestamp",
+    "end_time": "ISO-8601 timestamp"
+}
+```
+
+#### bom_matched.csv
+Output file with matched parts. Columns:
+- Original input columns
+- `Mouser Part Number`
+- `Manufacturer Part Number`
+- `Manufacturer Name`
+- `Mouser Description`
+- `Datasheet URL`
+- `Price`
+- `Availability`
+- `Match Status`
+
+## Queue Processing System
+
+### Processing Order
+1. Projects are processed in alphabetical order by directory name
+2. Each project is processed completely before moving to the next
+3. Failed projects are moved to finished directory with error status
+4. System checks for new projects every 60 seconds
+
+### Running the Queue Processor
+```bash
+python process_queue.py
+```
+
+The processor will:
+- Run continuously
+- Process projects in alphabetical order
+- Log all activities to the console
+- Handle errors gracefully
+- Create results.json for each project
+- Move completed projects to finished directory
+
+### Error Handling
+- Missing required files: Project moved to finished with "failed" status
+- API errors: Logged and project marked as failed
+- Processing errors: Logged and project marked as failed
+- System continues processing next project after any error
 
 ## Testing
 
 ### Running Tests
-
-The project includes both unit tests and integration tests. To run all tests:
-
 ```bash
 python -m pytest tests/
 ```
 
 ### Test Categories
-
-1. **Unit Tests**
-   - Search term generation
-   - Mouser API interaction
-   - LLM evaluation logic
-   - CSV handling
-   - Data extraction
-
-2. **Integration Tests**
-   - End-to-end workflow
-   - API interaction
-   - Error handling
-
-3. **Error Handling Tests**
-   - Invalid file paths
-   - API errors
-   - Data format issues
-
-### Running Specific Tests
-
-To run specific test categories:
-
-```bash
-# Run only unit tests
-python -m pytest tests/unit/
-
-# Run only integration tests
-python -m pytest tests/integration/
-
-# Run tests with coverage report
-python -m pytest --cov=part_finder tests/
-```
-
-## Error Handling
-
-The tool includes comprehensive error handling for:
-- Mouser API errors
-- LLM API errors
-- Data parsing errors
-- File handling errors
-- No matches/LLM selection failures
-
-Errors are logged and appropriate status messages are written to the output CSV.
+- Unit tests for each module
+- Integration tests for the complete pipeline
+- API interaction tests (mocked)
+- File handling tests
+- Error handling tests
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+3. Make your changes
+4. Run tests
+5. Submit a pull request
 
 ## License
 
-[Specify your license here]
-
-## Acknowledgments
-
-- Mouser Electronics for their API
-- Anthropic for Claude LLM 
+[Your chosen license] 
