@@ -1,0 +1,148 @@
+import pytest
+import os
+import sys
+from unittest.mock import patch, mock_open, MagicMock
+from pcb_part_finder.main import parse_args, validate_file_paths, main
+from pcb_part_finder.data_loader import DataLoaderError
+from pcb_part_finder.output_writer import OutputWriterError
+
+def test_parse_args_valid():
+    """Test parsing valid command line arguments."""
+    test_args = ['--input', 'test.csv', '--notes', 'notes.txt']
+    with patch.object(sys, 'argv', ['script.py'] + test_args):
+        args = parse_args()
+        assert args.input == 'test.csv'
+        assert args.notes == 'notes.txt'
+
+def test_parse_args_missing():
+    """Test handling missing required arguments."""
+    with patch.object(sys, 'argv', ['script.py']):
+        with pytest.raises(SystemExit):
+            parse_args()
+
+def test_validate_file_paths_valid(tmp_path):
+    """Test validation of existing file paths."""
+    # Create temporary files
+    input_file = tmp_path / "test.csv"
+    notes_file = tmp_path / "notes.txt"
+    input_file.write_text("test")
+    notes_file.write_text("test")
+    
+    class Args:
+        def __init__(self, input_path, notes_path):
+            self.input = input_path
+            self.notes = notes_path
+    
+    args = Args(str(input_file), str(notes_file))
+    # Should not raise any exceptions
+    validate_file_paths(args)
+
+def test_validate_file_paths_missing_input(tmp_path):
+    """Test validation when input file is missing."""
+    notes_file = tmp_path / "notes.txt"
+    notes_file.write_text("test")
+    
+    class Args:
+        def __init__(self, input_path, notes_path):
+            self.input = input_path
+            self.notes = notes_path
+    
+    args = Args("nonexistent.csv", str(notes_file))
+    with pytest.raises(SystemExit):
+        validate_file_paths(args)
+
+def test_validate_file_paths_missing_notes(tmp_path):
+    """Test validation when notes file is missing."""
+    input_file = tmp_path / "test.csv"
+    input_file.write_text("test")
+    
+    class Args:
+        def __init__(self, input_path, notes_path):
+            self.input = input_path
+            self.notes = notes_path
+    
+    args = Args(str(input_file), "nonexistent.txt")
+    with pytest.raises(SystemExit):
+        validate_file_paths(args)
+
+def test_main_success(tmp_path, capsys):
+    """Test successful execution of main function."""
+    # Create test files
+    input_file = tmp_path / "test.csv"
+    notes_file = tmp_path / "notes.txt"
+    input_file.write_text("Qty,Description,Possible MPN,Package,Notes/Source\n1,Test Part,ABC123,SMD,Test Note")
+    notes_file.write_text("Test project notes")
+
+    # Mock command line arguments
+    test_args = ['--input', str(input_file), '--notes', str(notes_file)]
+    
+    # Mock API responses
+    mock_llm_response = "term1, term2"
+    mock_mouser_response = {
+        'SearchResults': {
+            'Parts': [
+                {
+                    'MouserPartNumber': 'MOUSER123',
+                    'ManufacturerPartNumber': 'ABC123',
+                    'Manufacturer': 'Test Mfr',
+                    'Description': 'Test Part',
+                    'DataSheetUrl': 'http://example.com',
+                    'PriceBreaks': [{'Price': '1.23'}],
+                    'AvailabilityInStock': '100'
+                }
+            ]
+        }
+    }
+    
+    with patch.object(sys, 'argv', ['script.py'] + test_args):
+        with patch.dict('os.environ', {'MOUSER_API_KEY': 'test_key', 'ANTHROPIC_API_KEY': 'test_key'}):
+            with patch('pcb_part_finder.llm_handler.get_llm_response', return_value=mock_llm_response):
+                with patch('pcb_part_finder.mouser_api.search_mouser_by_keyword', return_value=mock_mouser_response['SearchResults']['Parts']):
+                    with patch('pcb_part_finder.mouser_api.search_mouser_by_mpn', return_value=mock_mouser_response['SearchResults']['Parts'][0]):
+                        # Run main function
+                        main()
+
+                        # Check output
+                        captured = capsys.readouterr()
+                        assert "Loaded project notes" in captured.out
+
+def test_main_data_loader_error(tmp_path, capsys):
+    """Test main function handling DataLoaderError."""
+    # Create test files
+    input_file = tmp_path / "test.csv"
+    notes_file = tmp_path / "notes.txt"
+    input_file.write_text("invalid csv content")
+    notes_file.write_text("Test project notes")
+
+    # Mock command line arguments
+    test_args = ['--input', str(input_file), '--notes', str(notes_file)]
+    with patch.object(sys, 'argv', ['script.py'] + test_args):
+        with patch.dict('os.environ', {'MOUSER_API_KEY': 'test_key', 'ANTHROPIC_API_KEY': 'test_key'}):
+            with pytest.raises(SystemExit):
+                main()
+
+            # Check error output
+            captured = capsys.readouterr()
+            assert "Error loading input data" in captured.err or "CSV is missing required headers" in captured.err
+
+def test_main_output_writer_error(tmp_path, capsys):
+    """Test main function handling OutputWriterError."""
+    # Create test files
+    input_file = tmp_path / "test.csv"
+    notes_file = tmp_path / "notes.txt"
+    input_file.write_text("Qty,Description,Possible MPN,Package,Notes/Source\n1,Test Part,ABC123,SMD,Test Note")
+    notes_file.write_text("Test project notes")
+
+    # Mock command line arguments
+    test_args = ['--input', str(input_file), '--notes', str(notes_file)]
+
+    # Mock initialize_output_csv to raise OutputWriterError
+    with patch('pcb_part_finder.main.initialize_output_csv', side_effect=OutputWriterError("Test error")):
+        with patch.object(sys, 'argv', ['script.py'] + test_args):
+            with patch.dict('os.environ', {'MOUSER_API_KEY': 'test_key', 'ANTHROPIC_API_KEY': 'test_key'}):
+                with pytest.raises(SystemExit):
+                    main()
+
+                # Check error output
+                captured = capsys.readouterr()
+                assert "Error writing output" in captured.err or "Test error" in captured.err 

@@ -24,7 +24,10 @@ def get_api_key() -> Optional[str]:
     Raises:
         MouserApiError: If the API key is not found.
     """
-    return os.getenv('MOUSER_API_KEY')
+    api_key = os.getenv('MOUSER_API_KEY')
+    if not api_key:
+        raise MouserApiError("Mouser API key not found")
+    return api_key
 
 def search_mouser_by_keyword(keyword: str, records: int = 5) -> List[Dict[str, Any]]:
     """Search for parts using a keyword.
@@ -68,10 +71,12 @@ def search_mouser_by_keyword(keyword: str, records: int = 5) -> List[Dict[str, A
             json=payload,
             timeout=15
         )
-        
+
         if response.status_code == 200:
             try:
                 data = response.json()
+                if 'Errors' in data and len(data['Errors']) > 0:
+                    raise MouserApiError(f"Mouser API error: {data['Errors']}")
                 parts = data.get('SearchResults', {}).get('Parts', [])
                 return parts if parts else []
             except json.JSONDecodeError as e:
@@ -129,6 +134,9 @@ def search_mouser_by_mpn(mpn: str) -> Optional[Dict[str, Any]]:
         if response.status_code == 200:
             try:
                 data = response.json()
+                if 'Errors' in data and len(data['Errors']) > 0:
+                    print(data)
+                    raise MouserApiError(f"Mouser API error: {data['Errors']}")
                 parts = data.get('SearchResults', {}).get('Parts', [])
                 if not parts:
                     return None
@@ -142,14 +150,21 @@ def search_mouser_by_mpn(mpn: str) -> Optional[Dict[str, Any]]:
                 if price_breaks:
                     # Sort by quantity and take the lowest
                     price_breaks.sort(key=lambda x: x.get('Quantity', float('inf')))
-                    price = f"${price_breaks[0].get('Price', 'N/A')}"
+                    price_str = price_breaks[0].get('Price', 'N/A')
+                    # Remove any existing $ symbol as we'll add our own
+                    price_str = price_str.replace('$', '')
+                    price = f"${price_str}" if price_str != 'N/A' else 'N/A'
                 
                 # Extract availability
                 availability = "Unknown"
-                if part.get('AvailabilityInStock'):
-                    availability = "In Stock"
-                elif part.get('AvailabilityOnOrder'):
-                    availability = f"Lead Time: {part.get('AvailabilityOnOrder')}"
+                stock = part.get('AvailabilityInStock', '0')
+                try:
+                    if int(stock) > 0:
+                        availability = "In Stock"
+                    elif part.get('LeadTime'):
+                        availability = f"Lead Time: {part.get('LeadTime')}"
+                except (ValueError, TypeError):
+                    pass
                 
                 return {
                     'Mouser Part Number': part.get('MouserPartNumber', ''),

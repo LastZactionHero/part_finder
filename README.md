@@ -1,22 +1,38 @@
-# Mouser Part Finder
+# PCB Part Selection Streamlining Tool
 
-A CLI tool that helps find the best electronic components from Mouser Electronics using AI-powered part selection.
+## Overview
+
+This tool automates and streamlines the part selection process for PCB design by matching approximate parts listed in a CSV file to real Mouser parts using the Mouser API, with the aid of an LLM for evaluating relevance.
+
+The tool takes an input CSV file containing part descriptions and uses a two-pass LLM approach to:
+1. Generate optimal search terms for the Mouser API
+2. Evaluate and select the best matching part from Mouser's search results
 
 ## Features
 
-- Search Mouser's catalog using natural language queries
-- AI-powered part selection using Claude
-- Context-aware recommendations (e.g., specific microcontroller compatibility)
-- Clean, scriptable output format
-- Detailed verbose mode for debugging
-- Generate BOMs from project requirements
-- Process existing BOMs to find Mouser parts
+- Automated part matching using Mouser's API
+- Intelligent search term generation using LLM
+- Context-aware part evaluation considering:
+  - Project requirements and constraints
+  - Previously selected parts
+  - Availability and pricing
+  - Package compatibility
+  - Manufacturer preferences
+- Detailed output CSV with comprehensive part information
+- Robust error handling and logging
+
+## Prerequisites
+
+- Python 3.8 or higher
+- Mouser API key
+- Anthropic Claude API key
+- Required Python packages (see `requirements.txt`)
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/LastZactionHero/part_finder.git
+git clone <repository-url>
 cd part_finder
 ```
 
@@ -25,86 +41,111 @@ cd part_finder
 pip install -r requirements.txt
 ```
 
-3. Create a `.env` file with your API keys:
+3. Set up environment variables:
 ```bash
-MOUSER_API_KEY=your_mouser_api_key
-CLAUDE_API_KEY=your_claude_api_key
+export MOUSER_API_KEY="your_mouser_api_key"
+export ANTHROPIC_API_KEY="your_anthropic_api_key"
 ```
 
 ## Usage
 
-### Basic Part Search
+The tool is run from the command line with the following arguments:
+
 ```bash
-python mouser_search.py --query "500ohm 0805 resistor"
+python part_finder.py --input <input_csv_path> --notes <project_notes_path>
 ```
 
-With context for better part selection:
+### Arguments
+
+- `--input`: Path to the input CSV file containing part descriptions
+- `--notes`: Path to the project notes file containing requirements and constraints
+
+### Input CSV Format
+
+The input CSV should have the following columns:
+- `Qty`: Quantity needed
+- `Description`: Part description
+- `Possible MPN`: Manufacturer part number (if known)
+- `Package`: Package type
+- `Notes/Source`: Additional notes or source information
+
+### Output
+
+The tool generates a `bom_matched.csv` file containing:
+- Original input data
+- Matched Mouser part information
+- Match status
+- Detailed part specifications
+- Pricing and availability information
+
+## Testing
+
+### Running Tests
+
+The project includes both unit tests and integration tests. To run all tests:
+
 ```bash
-python mouser_search.py --query "16mhz smd crystal oscillator" --context "Atmega32u4 oscillator"
+python -m pytest tests/
 ```
 
-Verbose mode for detailed information:
+### Test Categories
+
+1. **Unit Tests**
+   - Search term generation
+   - Mouser API interaction
+   - LLM evaluation logic
+   - CSV handling
+   - Data extraction
+
+2. **Integration Tests**
+   - End-to-end workflow
+   - API interaction
+   - Error handling
+
+3. **Error Handling Tests**
+   - Invalid file paths
+   - API errors
+   - Data format issues
+
+### Running Specific Tests
+
+To run specific test categories:
+
 ```bash
-python mouser_search.py --query "500ohm 0805 resistor" -v
+# Run only unit tests
+python -m pytest tests/unit/
+
+# Run only integration tests
+python -m pytest tests/integration/
+
+# Run tests with coverage report
+python -m pytest --cov=part_finder tests/
 ```
 
-### BOM Processing
-Process an existing BOM to find Mouser parts:
-```bash
-python bom_processor.py input_bom.csv "Project description" output_bom.csv
-```
+## Error Handling
 
-### BOM Generation
-Generate a BOM from project requirements:
-```bash
-python bom_generator.py -r requirements.txt
-```
+The tool includes comprehensive error handling for:
+- Mouser API errors
+- LLM API errors
+- Data parsing errors
+- File handling errors
+- No matches/LLM selection failures
 
-### Command Line Arguments
+Errors are logged and appropriate status messages are written to the output CSV.
 
-#### mouser_search.py
-- `-q, --query`: Search query (required)
-- `-c, --context`: Context for part selection (optional)
-- `-v, --verbose`: Print detailed information about the part selection
+## Contributing
 
-#### bom_processor.py
-- Input BOM CSV file (required)
-- Project description (required)
-- Output BOM CSV file (required)
-
-#### bom_generator.py
-- `-r, --requirements`: Requirements text file (required)
-
-## Output
-
-By default, the tool outputs just the Mouser part number, making it easy to use in scripts or pipe to other commands.
-
-Example output:
-```
-71-PTN0805Y5000BST1
-```
-
-With verbose mode (`-v`), you'll see:
-- Claude's reasoning for part selection
-- Detailed part information
-- Price and availability
-
-BOM files are output in CSV format with columns:
-- Reference
-- Value
-- Description
-- Footprint
-- Quantity
-- MouserPartNumber
-
-## Development
-
-The tool uses:
-- Python 3.x
-- Mouser API for part search
-- Claude API for intelligent part selection
-- python-dotenv for environment variable management
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
-MIT License - feel free to use this tool for your own projects.
+[Specify your license here]
+
+## Acknowledgments
+
+- Mouser Electronics for their API
+- Anthropic for Claude LLM 

@@ -1,0 +1,131 @@
+{
+  "Errors": [],
+  "SearchResults": {
+    "NumberOfResult": 20139,
+    "Parts": [
+      {
+        "DataSheetUrl": "https://www.mouser.com/datasheet/2/418/tyco_electronics_meas-s-a0001063433-1-1743215.pdf",
+        "Description": "NTC Thermistors SONDE NTC 30 AWG KYNAR",
+        "FactoryStock": "0",
+        "ImagePath": null,
+        "Category": "NTC Thermistors",
+        "LeadTime": "70 Days",
+        "LifecycleStatus": null,
+        "Manufacturer": "Measurement Specialties",
+        "ManufacturerPartNumber": "10K3A542I",
+        "Min": "1",
+        "Mult": "1",
+        "MouserPartNumber": "824-10K3A542I",
+        "ProductAttributes": [
+          {
+            "AttributeName": "Standard Pack Qty",
+            "AttributeValue": "1"
+          }
+        ],
+        "PriceBreaks": [
+          {
+            "Quantity": 1,
+            "Price": "$5.75",
+            "Currency": "USD"
+          },
+          {
+            "Quantity": 5,
+            "Price": "$4.93",
+            "Currency": "USD"
+          },
+          {
+            "Quantity": 10,
+            "Price": "$4.31",
+            "Currency": "USD"
+          },
+          {
+            "Quantity": 25,
+            "Price": "$3.83",
+            "Currency": "USD"
+          },
+          {
+            "Quantity": 50,
+            "Price": "$3.64",
+            "Currency": "USD"
+          },
+          {
+            "Quantity": 100,
+            "Price": "$3.55",
+            "Currency": "USD"
+          },
+          {
+            "Quantity": 500,
+            "Price": "$2.97",
+            "Currency": "USD"
+          },
+          {
+            "Quantity": 1000,
+            "Price": "$2.88",
+            "Currency": "USD"
+          }
+        ],
+        "AlternatePackagings": null,
+        "ProductDetailUrl": "https://www.mouser.com/ProductDetail/Measurement-Specialties/10K3A542I?qs=4qSGC86Ff6TJQ85uQj8RTw%3D%3D",
+        "Reeling": false,
+        "ROHSStatus": "RoHS Compliant",
+        "SuggestedReplacement": "",
+        "MultiSimBlue": 0,
+        "UnitWeightKg": {
+          "UnitWeight": 0.0003
+        },
+        "AvailabilityInStock": "0",
+        "AvailabilityOnOrder": [
+          {
+            "Quantity": 10000,
+            "Date": "2025-06-05T00:00:00"
+          }
+        ],
+        "InfoMessages": [],
+        "SurchargeMessages": [
+          {
+            "code": "TARIFF_US_301",
+            "message": "Tariff will be applied to this part."
+          }
+        ],
+        "ProductCompliance": [
+          {
+            "ComplianceName": "USHTS",
+            "ComplianceValue": "8533408070"
+          },
+          {
+            "ComplianceName": "CNHTS",
+            "ComplianceValue": "8533400000"
+          },
+          {
+            "ComplianceName": "CAHTS",
+            "ComplianceValue": "8533400000"
+          },
+          {
+            "ComplianceName": "JPHTS",
+            "ComplianceValue": "853340000"
+          },
+          {
+            "ComplianceName": "KRHTS",
+            "ComplianceValue": "8533409000"
+          },
+          {
+            "ComplianceName": "TARIC",
+            "ComplianceValue": "8533401000"
+          },
+          {
+            "ComplianceName": "MXHTS",
+            "ComplianceValue": "8533409102"
+          },
+          {
+            "ComplianceName": "BRHTS",
+            "ComplianceValue": "85334011"
+          },
+          {
+            "ComplianceName": "ECCN",
+            "ComplianceValue": "EAR99"
+          }
+        ]
+      }
+    ]
+  }
+}
