@@ -10,10 +10,10 @@ app = Flask(__name__,
             static_folder='static',
             template_folder='templates')
 
-# Configure CORS to allow requests from localhost:8000
+# Configure CORS to allow requests from all origins in development
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:8000"],
+        "origins": ["*"],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type"]
     }

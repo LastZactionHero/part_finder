@@ -11,10 +11,11 @@ from typing import Dict, Any
 from pathlib import Path
 from pcb_part_finder.main import main as process_project
 
-# Configure logging
+# Configure logging to stdout for Docker compatibility
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 

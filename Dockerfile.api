@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies and supervisor
+RUN apt-get update && apt-get install -y \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /app/projects/queue /app/projects/finished /app/cache
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Create supervisor configuration
+RUN echo "[supervisord]\nnodaemon=true\n\n[program:api]\ncommand=python -m pcb_part_finder api --host 0.0.0.0 --port 8000\n\n[program:queue]\ncommand=python -m pcb_part_finder queue" > /etc/supervisor/conf.d/app.conf
+
+# Expose the API port
+EXPOSE 8000
+
+# Start supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/app.conf"] 
