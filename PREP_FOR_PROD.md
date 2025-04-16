@@ -1,7 +1,7 @@
-[] Dockerize
 [] Too many "No projects in queue" log messages, remove those
 [] Switch to cheaper model
 [] This might take a bit message
+[] Live-load as it's running
 [] Google Analytics
 [] Large queue warning message, rate limit to 20 queued projects
 [] Contact email

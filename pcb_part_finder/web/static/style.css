@@ -128,6 +128,13 @@ button {
     box-shadow: var(--shadow-sm);
 }
 
+button:disabled {
+    background-color: var(--text-secondary);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 button:hover {
     background-color: var(--primary-hover);
     transform: translateY(-1px);

@@ -169,6 +169,7 @@ submitButton.addEventListener('click', async () => {
         resultsSection.classList.add('hidden');
 
         submitButton.disabled = true;
+        submitButton.textContent = 'Processing...';
         statusSection.classList.remove('hidden');
         statusMessage.innerHTML = '<div class="status-message">Creating project...</div>';
 
@@ -178,6 +179,7 @@ submitButton.addEventListener('click', async () => {
     } catch (error) {
         statusMessage.innerHTML = `<div class="error">Error: ${error.message}</div>`;
         submitButton.disabled = false;
+        submitButton.textContent = 'Submit';
     }
 });
 
@@ -190,6 +192,11 @@ window.addEventListener('load', () => {
     const projectId = urlParams.get('project');
     if (projectId) {
         statusSection.classList.remove('hidden');
+        submitButton.disabled = true;
+        submitButton.textContent = 'Processing...';
         pollProjectStatus(projectId);
+    } else {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit';
     }
 }); 
