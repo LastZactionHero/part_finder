@@ -6,7 +6,7 @@ import sys
 import logging
 from typing import List, Dict, Any
 from dotenv import load_dotenv
-from pcb_part_finder.data_loader import load_notes, load_input_csv, DataLoaderError
+from pcb_part_finder.core.data_loader import load_input_csv, DataLoaderError
 from pcb_part_finder.output_writer import (
     initialize_output_csv,
     append_row_to_csv,

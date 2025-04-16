@@ -9,48 +9,32 @@ class DataLoaderError(Exception):
     """Custom exception for data loading errors."""
     pass
 
-def load_notes(filepath: str) -> str:
-    """Load the project notes file.
-    
-    Args:
-        filepath: Path to the notes file.
-        
-    Returns:
-        The contents of the notes file as a string.
-        
-    Raises:
-        DataLoaderError: If the file cannot be read.
-    """
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
-    except (FileNotFoundError, IOError) as e:
-        raise DataLoaderError(f"Error loading notes file: {e}")
+# Hard-coded ideal BOM format
+IDEAL_BOM_FORMAT = """Qty,Description,Possible MPN,Package,Notes/Source
+1,"ESP32 Wi-Fi/BT Module, 8MB Flash, 2MB PSRAM",ESP32-WROOM-32E-N8R2,RF_Module:ESP32-WROOM-32E,"Sufficient for MP3, SMT. Use Espressif KiCad Lib. Verify footprint."
+1,"USB Type-C Receptacle, 2.0, 16-pin, Horiz, SMT w/ posts",UJ20-C-H-G-SMT-4-P16-TR,Connector_USB:USB_C_Receptacle_...,"SameSky, 5A, 48V. Find/verify footprint."
+1,USB-to-UART Bridge,CP2102N-A02-GQFN24,Package_DFN_QFN:QFN-24-1EP_...,"Silicon Labs, Integrated Osc.. Find/verify footprint."
+1,"LDO Voltage Regulator, 3.3V, 1A",AMS1117-3.3,Package_TO_SOT_SMD:SOT-223-3,"Common LDO, requires caps."
+2,NPN Transistor (Small Signal),BC547 / 2N3904,Package_TO_SOT_THT:TO-92_Inline,For auto-reset circuit. (Or 2N7002DW SOT363 ).
+1,LED Green 3mm THT,,LED_THT:LED_D3.0mm,Power indicator.
+1,LED Blue 3mm THT,,LED_THT:LED_D3.0mm,"User blink LED (e.g., on GPIO2)."
+4,Resistor 10kΩ,,Resistor_SMD:R_0805_2012Metric,"Pull-ups (EN, GPIO0), Pull-downs (GPIO12, GPIO15 - adjust as needed)."
+1,Resistor 1kΩ,,Resistor_SMD:R_0805_2012Metric,CP2102N RSTb pull-up.
+2,Resistor ~330Ω (TBD),,Resistor_SMD:R_0805_2012Metric,LED Current Limiting. Value depends on LED Vf.
+2,Resistor 1kΩ-10kΩ (TBD),,Resistor_SMD:R_0805_2012Metric,Auto-reset transistor base resistors (if using BJTs).
+2,Capacitor 10µF Ceramic,,Capacitor_SMD:C_0805_2012Metric,"Bulk capacitance (LDO in, ESP32 3V3)."
+1,Capacitor 22µF Tantalum (or Ceramic),,Capacitor_SMD:CP_Elec_...,LDO Output Stability. Check LDO datasheet.
+1,Capacitor 1µF Ceramic,,Capacitor_SMD:C_0805_2012Metric,ESP32 EN pin RC delay.
+~6,Capacitor 0.1µF Ceramic,,Capacitor_SMD:C_0603_1608Metric,"Decoupling (ESP32, CP2102N). Place close to IC pins."
+1,Capacitor 4.7µF Ceramic,,Capacitor_SMD:C_0805_2012Metric,CP2102N VREGIN decoupling.
+2,Push Button Switch Tactile,,Button_Switch_THT:SW_PUSH_...,Manual Reset (EN) and Boot (GPIO0).
+~4,"Pin Header Male 0.1"" Pitch (Various Sizes)",,Connector_PinHeader_2.54mm:...,GPIO breakout."""
 
-def get_ideal_csv_path() -> str:
-    """Get the path to the ideal CSV format file.
-    
-    Returns:
-        The absolute path to the ideal CSV file.
-        
-    Raises:
-        DataLoaderError: If the ideal CSV file cannot be found.
-    """
-    # Get the directory of the current module
-    module_dir = os.path.dirname(os.path.abspath(__file__))
-    ideal_csv_path = os.path.join(module_dir, "ideal_initial_bom.csv")
-    
-    if not os.path.exists(ideal_csv_path):
-        raise DataLoaderError(f"Ideal CSV format file not found at {ideal_csv_path}")
-        
-    return ideal_csv_path
-
-def reformat_csv_with_llm(malformed_csv_path: str, ideal_csv_path: str) -> str:
+def reformat_csv_with_llm(malformed_csv_path: str) -> str:
     """Reformat a CSV using the LLM.
     
     Args:
         malformed_csv_path: Path to the input CSV file
-        ideal_csv_path: Path to the ideal CSV format file
         
     Returns:
         Path to the reformatted CSV file
@@ -63,16 +47,12 @@ def reformat_csv_with_llm(malformed_csv_path: str, ideal_csv_path: str) -> str:
         with open(malformed_csv_path, 'r', encoding='utf-8') as f:
             input_content = f.read()
             
-        # Read the ideal CSV content
-        with open(ideal_csv_path, 'r', encoding='utf-8') as f:
-            ideal_content = f.read()
-            
         # Create prompt for the LLM
         prompt = f"""You are a helpful assistant that reformats CSV files. I have an input CSV file and an ideal CSV format. 
 Please reformat the input CSV to match the structure of the ideal CSV as closely as possible.
 
 The ideal CSV format is:
-{ideal_content}
+{IDEAL_BOM_FORMAT}
 
 The input CSV content is:
 {input_content}
@@ -109,11 +89,8 @@ def load_input_csv(filepath: str) -> List[Dict[str, Any]]:
         DataLoaderError: If the file cannot be read or is not a valid CSV.
     """
     try:
-        # Get the path to the ideal CSV from the package directory
-        ideal_csv_path = get_ideal_csv_path()
-            
         # Always reformat the CSV using the LLM
-        reformatted_path = reformat_csv_with_llm(filepath, ideal_csv_path)
+        reformatted_path = reformat_csv_with_llm(filepath)
         
         # Load the reformatted CSV
         with open(reformatted_path, 'r', encoding='utf-8') as f:

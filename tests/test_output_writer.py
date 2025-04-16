@@ -2,12 +2,14 @@
 
 import csv
 import pytest
+import os
 from pcb_part_finder.output_writer import (
     initialize_output_csv,
     append_row_to_csv,
     OUTPUT_HEADER,
     OutputWriterError
 )
+from unittest.mock import patch
 
 def test_initialize_output_csv_success(tmp_path):
     """Test successful initialization of output CSV."""
@@ -23,14 +25,11 @@ def test_initialize_output_csv_success(tmp_path):
 def test_initialize_output_csv_permission_error(tmp_path):
     """Test initialization with permission error."""
     output_file = tmp_path / "output.csv"
-    # Create a read-only directory
-    output_file.parent.chmod(0o444)
     
-    with pytest.raises(OutputWriterError):
-        initialize_output_csv(str(output_file), OUTPUT_HEADER)
-    
-    # Reset permissions for cleanup
-    output_file.parent.chmod(0o777)
+    with patch('builtins.open', side_effect=PermissionError("Permission denied")):
+        with pytest.raises(OutputWriterError) as exc_info:
+            initialize_output_csv(str(output_file), OUTPUT_HEADER)
+        assert "Error initializing output CSV" in str(exc_info.value)
 
 def test_append_row_to_csv_success(tmp_path):
     """Test successful appending of a row to output CSV."""

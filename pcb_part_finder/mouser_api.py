@@ -16,7 +16,7 @@ class MouserApiError(Exception):
     """Custom exception for Mouser API errors."""
     pass
 
-def get_api_key() -> Optional[str]:
+def get_api_key() -> str:
     """Get the Mouser API key from environment variables.
     
     Returns:
@@ -25,7 +25,10 @@ def get_api_key() -> Optional[str]:
     Raises:
         MouserApiError: If the API key is not found.
     """
-    return os.getenv('MOUSER_API_KEY')
+    api_key = os.getenv('MOUSER_API_KEY')
+    if not api_key:
+        raise MouserApiError("Mouser API key not found")
+    return api_key
 
 def search_mouser_by_keyword(keyword: str, records: int = 10) -> List[Dict[str, Any]]:
     """Search for parts using a keyword.

@@ -59,6 +59,23 @@ Before you begin, ensure you have the following:
     ANTHROPIC_API_KEY="your_anthropic_api_key"
     ```
 
+## Running Tests
+
+The project includes a comprehensive test suite that can be run using Docker Compose. To run the tests:
+
+1.  **Run all tests:**
+    ```bash
+    docker compose run --rm -v $(pwd)/tests:/app/tests api python -m pytest tests/ -v
+    ```
+
+The test suite includes:
+- Data loader tests (`test_data_loader.py`)
+- Mouser API tests (`test_mouser_api.py`)
+- Output writer tests (`test_output_writer.py`)
+- Main application tests (`test_main.py`)
+
+Note: The Docker Compose setup automatically handles the environment variables and dependencies, so you don't need to set up the `.env` file separately for testing.
+
 ## Running the Tool
 
 The system consists of three main services that need to be run concurrently, typically each in its own terminal window.

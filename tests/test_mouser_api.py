@@ -17,10 +17,10 @@ def test_get_api_key_success():
 
 def test_get_api_key_missing():
     """Test missing API key."""
-    with patch.dict('os.environ', clear=True):
+    with patch.dict('os.environ', {}, clear=True):
         with pytest.raises(MouserApiError) as exc_info:
             get_api_key()
-        assert "not found" in str(exc_info.value)
+        assert "Mouser API key not found" in str(exc_info.value)
 
 def test_search_mouser_by_keyword_success(mocker):
     """Test successful keyword search."""
