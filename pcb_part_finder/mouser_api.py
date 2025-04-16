@@ -5,6 +5,7 @@ import json
 import time
 import requests
 from typing import List, Dict, Optional, Any
+from .parts_cache import search_cache, save_to_cache
 
 # API base URL
 MOUSER_API_BASE_URL = "https://api.mouser.com/api/v1.0"
@@ -24,10 +25,7 @@ def get_api_key() -> Optional[str]:
     Raises:
         MouserApiError: If the API key is not found.
     """
-    api_key = os.getenv('MOUSER_API_KEY')
-    if not api_key:
-        raise MouserApiError("Mouser API key not found")
-    return api_key
+    return os.getenv('MOUSER_API_KEY')
 
 def search_mouser_by_keyword(keyword: str, records: int = 10) -> List[Dict[str, Any]]:
     """Search for parts using a keyword.
@@ -42,6 +40,11 @@ def search_mouser_by_keyword(keyword: str, records: int = 10) -> List[Dict[str, 
     Raises:
         MouserApiError: If the API request fails or returns an error.
     """
+    # First try to get results from cache
+    cached_result = search_cache(keyword)
+    if cached_result:
+        return [cached_result]
+    
     api_key = get_api_key()
     if not api_key:
         raise MouserApiError("Mouser API key not found")
@@ -78,6 +81,11 @@ def search_mouser_by_keyword(keyword: str, records: int = 10) -> List[Dict[str, 
                 if 'Errors' in data and len(data['Errors']) > 0:
                     raise MouserApiError(f"Mouser API error: {data['Errors']}")
                 parts = data.get('SearchResults', {}).get('Parts', [])
+                
+                # Save the first part to cache if found
+                if parts:
+                    save_to_cache(parts[0], keyword)
+                
                 return parts if parts else []
             except json.JSONDecodeError as e:
                 raise MouserApiError(f"Invalid JSON response: {e}")
