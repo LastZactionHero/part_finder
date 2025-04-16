@@ -4,6 +4,8 @@ import os
 import re
 from typing import List, Dict, Any, Optional
 import anthropic
+from google import genai
+from google.genai import types
 
 class LlmApiError(Exception):
     """Custom exception for LLM API errors."""
@@ -23,13 +25,11 @@ def get_anthropic_client() -> Optional[anthropic.Anthropic]:
         raise LlmApiError("Anthropic API key not found")
     return anthropic.Anthropic(api_key=api_key)
 
-def get_llm_response(prompt: str, model: str = "claude-3-sonnet-20240229", temperature: float = 0.2) -> Optional[str]:
-    """Get a response from the LLM.
+def get_llm_response_anthropic(prompt: str) -> Optional[str]:
+    """Get a response from the Anthropic LLM.
     
     Args:
         prompt: The input prompt for the LLM.
-        model: The model to use (default: claude-3-sonnet-20240229).
-        temperature: The temperature parameter (default: 0.2).
         
     Returns:
         The LLM's response text.
@@ -37,6 +37,9 @@ def get_llm_response(prompt: str, model: str = "claude-3-sonnet-20240229", tempe
     Raises:
         LlmApiError: If the API call fails.
     """
+    model: str = "claude-3-sonnet-20240229"
+    temperature: float = 0.2
+
     client = get_anthropic_client()
     if not client:
         raise LlmApiError("Anthropic API key not found")
@@ -51,6 +54,23 @@ def get_llm_response(prompt: str, model: str = "claude-3-sonnet-20240229", tempe
         return response.content[0].text
     except anthropic.APIError as e:
         raise LlmApiError(f"Anthropic API error: {e}")
+
+def get_llm_response(prompt: str) -> Optional[str]:
+    """Get a response from the LLM.
+    
+    Args:
+        prompt: The input prompt for the LLM.
+        model: The model to use (default: claude-3-sonnet-20240229).
+        temperature: The temperature parameter (default: 0.2).
+        
+    Returns:
+        The LLM's response text.
+        
+    Raises:
+        LlmApiError: If the API call fails.
+    """
+    # return get_llm_response_anthropic(prompt, model, temperature)
+    return get_llm_response_gemini(prompt)
 
 def format_search_term_prompt(part_info: Dict[str, str]) -> str:
     """Format the prompt for generating search terms.
@@ -176,4 +196,57 @@ def extract_mpn_from_eval(llm_response: Optional[str]) -> Optional[str]:
     match = re.search(r'\[ManufacturerPartNumber:(.*?)\]', llm_response)
     if match:
         return match.group(1).strip()
-    return None 
+    return None
+
+def get_gemini_client() -> Optional[genai.Client]:
+    """Get the Gemini API client.
+    
+    Returns:
+        An initialized Gemini client.
+        
+    Raises:
+        LlmApiError: If the API key is not found.
+    """
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        raise LlmApiError("Gemini API key not found")
+    return genai.Client(api_key=api_key)
+
+def get_llm_response_gemini(prompt: str) -> Optional[str]:
+    """Get a response from the Gemini LLM.
+    
+    Args:
+        prompt: The input prompt for the LLM.
+        
+    Returns:
+        The LLM's response text.
+        
+    Raises:
+        LlmApiError: If the API call fails.
+    """
+    model: str = "gemini-2.5-pro-preview-03-25"
+    temperature: float = 0.2
+    client = get_gemini_client()
+    if not client:
+        raise LlmApiError("Gemini API key not found")
+        
+    try:
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)],
+            ),
+        ]
+        
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+        )
+        
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=generate_content_config,
+        )
+        return response.text
+    except Exception as e:
+        raise LlmApiError(f"Gemini API error: {e}") 
