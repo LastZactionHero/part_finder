@@ -11,7 +11,7 @@ This is the web frontend and API for the PCB Part Finder tool. It provides a use
 
 1. Install the required dependencies:
 ```bash
-pip install -r ../requirements.txt
+pip install -r ../../requirements.txt
 ```
 
 ## Running the Application
@@ -20,7 +20,7 @@ pip install -r ../requirements.txt
 
 1. Start the Flask server:
 ```bash
-cd web
+cd src/web
 python server.py
 ```
 
@@ -39,7 +39,7 @@ pip install gunicorn
 
 2. Start the server:
 ```bash
-cd web
+cd src/web
 gunicorn server:app -b 0.0.0.0:8000
 ```
 

@@ -1,4 +1,3 @@
-
 # PCB Part Selection Streamlining Tool
 
 ## Overview
@@ -67,21 +66,26 @@ The system consists of three main services that need to be run concurrently, typ
 1.  **Start the Queue Processor:**
     Monitors the `projects/queue/` directory and processes new projects.
     ```bash
-    python process_queue.py
+    python -m pcb_part_finder queue
     ```
 
 2.  **Start the API Server:**
     Handles project creation (though typically handled by file placement) and status queries. Runs on `http://localhost:8000`.
     ```bash
-    python -m pcb_part_finder.api
+    python -m pcb_part_finder api
     ```
 
 3.  **Start the Web Server (Optional UI):**
-    Provides a user interface for interaction. Runs on `http://localhost:3000`.
+    Provides a user interface for interaction. Runs on `http://localhost:8000`.
     ```bash
-    cd web
-    python -m http.server 3000
+    python -m pcb_part_finder web
     ```
+
+You can also specify custom host and port for the API and web servers:
+```bash
+python -m pcb_part_finder api --host 0.0.0.0 --port 8080
+python -m pcb_part_finder web --host 0.0.0.0 --port 8080
+```
 
 ## Basic Workflow
 
@@ -104,21 +108,23 @@ The system consists of three main services that need to be run concurrently, typ
 
 ```
 part_finder/
-├── pcb_part_finder/          # Main package directory
-│   ├── api.py               # API Server logic
-│   ├── main.py              # Main processing logic
-│   ├── data_loader.py       # Input file handling
-│   ├── output_writer.py     # Output file handling
-│   ├── mouser_api.py        # Mouser API integration
-│   └── llm_handler.py       # LLM integration
-├── projects/                # Project directories root
-│   ├── queue/              # Projects waiting to be processed
-│   └── finished/           # Completed projects
-├── web/                    # Web interface files
-├── tests/                  # Test suite
-├── data/                   # Sample data and test files
-├── .env                    # Environment variables (API Keys)
-└── requirements.txt        # Python dependencies
+├── src/                    # Source code directory
+│   ├── process_queue.py    # Queue processing script
+│   └── web/               # Web interface files
+├── pcb_part_finder/        # Main package directory
+│   ├── api.py             # API Server logic
+│   ├── main.py            # Main processing logic
+│   ├── data_loader.py     # Input file handling
+│   ├── output_writer.py   # Output file handling
+│   ├── mouser_api.py      # Mouser API integration
+│   └── llm_handler.py     # LLM integration
+├── projects/              # Project directories root
+│   ├── queue/            # Projects waiting to be processed
+│   └── finished/         # Completed projects
+├── tests/                # Test suite
+├── data/                 # Sample data and test files
+├── .env                  # Environment variables (API Keys)
+└── requirements.txt      # Python dependencies
 ```
 
 ### `projects` Directory
