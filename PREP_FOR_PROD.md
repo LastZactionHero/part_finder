@@ -1,4 +1,3 @@
-[] Duplicate Anthropic key
 [] Dockerize
 [] Too many "No projects in queue" log messages, remove those
 [] Switch to cheaper model

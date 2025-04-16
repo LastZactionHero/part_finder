@@ -1,1 +1,0 @@
-A simple ESP-based dev board with a few LEDs and GPIO headers.
