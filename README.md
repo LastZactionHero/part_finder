@@ -57,7 +57,7 @@ Before you begin, ensure you have the following:
     Create a file named `.env` in the project's root directory (`part_finder/`). Add your API keys to this file:
     ```dotenv
     MOUSER_API_KEY="your_mouser_api_key"
-    CLAUDE_API_KEY="your_anthropic_api_key"
+    ANTHROPIC_API_KEY="your_anthropic_api_key"
     ```
 
 ## Running the Tool

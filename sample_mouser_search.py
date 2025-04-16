@@ -88,14 +88,14 @@ def main():
     # Load API keys from .env file
     load_dotenv()
     mouser_api_key = os.getenv('MOUSER_API_KEY')
-    claude_api_key = os.getenv('CLAUDE_API_KEY')
+    anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
 
     if not mouser_api_key:
         print("Error: MOUSER_API_KEY not found in .env file", file=sys.stderr)
         return
 
-    if not claude_api_key:
-        print("Error: CLAUDE_API_KEY not found in .env file", file=sys.stderr)
+    if not anthropic_api_key:
+        print("Error: ANTHROPIC_API_KEY not found in .env file", file=sys.stderr)
         return
 
     try:
@@ -112,7 +112,7 @@ def main():
             return
 
         # Get Claude's recommendation
-        claude_response = get_claude_recommendation(parts, args.query, args.context, claude_api_key)
+        claude_response = get_claude_recommendation(parts, args.query, args.context, anthropic_api_key)
         if args.verbose:
             print("\nClaude's response:")
             print(claude_response)
