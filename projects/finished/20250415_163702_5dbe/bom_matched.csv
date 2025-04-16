@@ -1,6 +1,0 @@
-Qty,Description,Possible MPN,Package,Notes/Source,Mouser Part Number,Manufacturer Part Number,Manufacturer Name,Mouser Description,Datasheet URL,Price,Availability,Match Status
-1,"ESP32 Wi-Fi/BT Module, 8MB Flash, 2MB PSRAM",ESP32-WROOM-32E-N8R2,RF_Module:ESP32-WROOM-32E,"Sufficient for MP3, SMT. Use Espressif KiCad Lib. Verify footprint.",356-ESP32WRM32EN8R2,ESP32-WROOM-32E-N8R2,Espressif Systems,"Multiprotocol Modules ESP32-WROOM-32E integrates ESP32-D0WD-V3, with higher stability and safety performance.",https://www.mouser.com/datasheet/2/891/esp32_wroom_32e_esp32_wroom_32ue_datasheet_en-1855879.pdf,$2.88,In Stock,Matched
-1,"LDO Voltage Regulator, 3.3V, 1A",AMS1117-3.3,Package_TO_SOT_SMD:SOT-223-3,"Common LDO, requires caps.",,,,,,,,LLM Selection Failed
-1,LED Red SMD 0805,,,Power indicator.,,,,,,,,LLM Selection Failed
-25,Cherry MX Keyswitches,,,For custom keyboard.,540-G99-0742,G99-0742,CHERRY,"Switch Hardware Leveling Kit for MX 1x2, 1x2.25, 1x2.75",,$0.27,In Stock,Matched
-6,Capacitor 0.1µF Ceramic,,Capacitor_SMD:C_0805_2012Metric,Decoupling capacitors.,581-KAM21BR71H104JT,KAM21BR71H104JT,KYOCERA AVX,Multilayer Ceramic Capacitors MLCC - SMD/SMT 50V .1uF X7R 0805 5% AEC-Q200,https://www.mouser.com/datasheet/2/40/AutoMLCCKAM-3216307.pdf,$0.20,In Stock,Matched

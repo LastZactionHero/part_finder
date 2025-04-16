@@ -1,3 +1,0 @@
-Qty,Description,Possible MPN,Package,Notes/Source
-1,"10k 1% 0805 resistor",RC0805FR-0710KL,Resistor_SMD:R_0805_2012Metric,"Precision voltage divider, possibly pull-up/down resistor"
-2,"100nF 16V X7R capacitor",CL21B104KBCNNNC,Capacitor_SMD:C_0805_2012Metric,Power supply decoupling

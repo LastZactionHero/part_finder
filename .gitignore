@@ -38,3 +38,9 @@ Thumbs.db
 
 # Project specific
 *.log 
+
+# Project directories
+projects/queue/*
+projects/finished/*
+!projects/queue/.gitkeep
+!projects/finished/.gitkeep 
