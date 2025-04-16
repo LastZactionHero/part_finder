@@ -3,7 +3,7 @@
 import csv
 import os
 from typing import List, Dict, Any
-from pcb_part_finder.llm_handler import get_llm_response
+from pcb_part_finder.core.llm_handler import get_llm_response
 
 class DataLoaderError(Exception):
     """Custom exception for data loading errors."""

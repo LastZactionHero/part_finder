@@ -15,7 +15,7 @@ from pcb_part_finder.output_writer import (
     write_output_csv
 )
 from pcb_part_finder.mouser_api import search_mouser_by_keyword, search_mouser_by_mpn
-from pcb_part_finder.llm_handler import (
+from pcb_part_finder.core.llm_handler import (
     get_llm_response,
     format_search_term_prompt,
     parse_search_terms,
