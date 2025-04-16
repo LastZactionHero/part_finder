@@ -112,6 +112,11 @@ def search_mouser_by_mpn(mpn: str) -> Optional[Dict[str, Any]]:
     Raises:
         MouserApiError: If the API request fails or returns an error.
     """
+    # First try to get results from cache
+    cached_result = search_cache(mpn)
+    if cached_result:
+        return cached_result
+    
     api_key = get_api_key()
     if not api_key:
         raise MouserApiError("Mouser API key not found")
@@ -177,7 +182,7 @@ def search_mouser_by_mpn(mpn: str) -> Optional[Dict[str, Any]]:
                 except (ValueError, TypeError):
                     pass
                 
-                return {
+                result = {
                     'Mouser Part Number': part.get('MouserPartNumber', ''),
                     'Manufacturer Part Number': part.get('ManufacturerPartNumber', ''),
                     'Manufacturer Name': part.get('Manufacturer', ''),
@@ -186,6 +191,11 @@ def search_mouser_by_mpn(mpn: str) -> Optional[Dict[str, Any]]:
                     'Price': price or 'N/A',
                     'Availability': availability
                 }
+                
+                # Save the result to cache
+                save_to_cache(result, mpn)
+                
+                return result
             except json.JSONDecodeError as e:
                 raise MouserApiError(f"Invalid JSON response: {e}")
         elif response.status_code == 429:

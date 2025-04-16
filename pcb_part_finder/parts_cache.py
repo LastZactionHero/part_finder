@@ -65,12 +65,12 @@ def save_to_cache(part_data: Dict[str, Any], search_term: str) -> None:
     )
     print("Successfully saved to cache")
 
-def search_cache(search_term: str, threshold: float = 0.8) -> Optional[Dict[str, Any]]:
+def search_cache(search_term: str, threshold: float = 0.6) -> Optional[Dict[str, Any]]:
     """Search for parts in the cache.
     
     Args:
         search_term: The search term to look for
-        threshold: Similarity threshold (default: 0.8)
+        threshold: Similarity threshold (default: 0.6)
         
     Returns:
         Dictionary containing part information if found, None otherwise
