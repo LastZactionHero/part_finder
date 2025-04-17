@@ -1,6 +1,28 @@
 version: '3.8'
 
+# Make sure DOCKERHUB_USERNAME and APP_VERSION are set in your environment
+# before running docker-compose commands.
+# Example:
+# export DOCKERHUB_USERNAME=your_dockerhub_username
+# export APP_VERSION=v1.0.0
+
 services:
+  db:
+    build:
+      context: .
+      dockerfile: Dockerfile.db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=part_finder
+      - POSTGRES_PASSWORD=part_finder
+      - POSTGRES_DB=part_finder
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -12,6 +34,10 @@ services:
       - ./cache:/app/cache
     env_file:
       - .env
+    environment:
+      - DATABASE_URL=postgresql://part_finder:part_finder@db:5432/part_finder
+    depends_on:
+      - db
     restart: unless-stopped
     networks:
       - app-network
@@ -34,4 +60,7 @@ services:
 
 networks:
   app-network:
-    driver: bridge 
+    driver: bridge
+
+volumes:
+  postgres_data:

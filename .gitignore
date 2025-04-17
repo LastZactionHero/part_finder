@@ -44,3 +44,5 @@ projects/queue/*
 projects/finished/*
 !projects/queue/.gitkeep
 !projects/finished/.gitkeep 
+
+k8s/config.yaml
