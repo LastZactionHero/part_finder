@@ -15,7 +15,8 @@
             <hr class="header-divider"/>
             <p class="header-info">
                 <a href="https://github.com/LastZactionHero/part_finder/issues" target="_blank" rel="noopener noreferrer">Open an issue on GitHub</a>
-                <a href="https://www.buymeacoffee.com/lastzactionhero" target="_blank" rel="noopener noreferrer">Buy me a coffee</a>
+                &nbsp;&nbsp;|&nbsp;&nbsp;
+                <a href="https://www.buymeacoffee.com/lastzactionhero" target="_blank" rel="noopener noreferrer">Buy me a coffee ☕</a>
             </p>
         </header>
 
@@ -27,10 +28,13 @@
                 <label for="projectDescriptionInput">Project Description:</label>
                 <textarea id="projectDescriptionInput" placeholder="Optional, but useful context for component matching" rows="2"></textarea>
                 <label for="componentInput">Enter Components (one per line):</label>
+                <p class="hint-text">
+                    <b>Feeling lazy?</b> Me too! Upload your BOM in any format. We'll reformat it through the ✨ magic of computers ✨.
+                </p>
                 <textarea id="componentInput">Qty,Description,Possible MPN,Package,Notes/Source
 1,"ESP32 Wi-Fi/BT Module, 8MB Flash, 2MB PSRAM",ESP32-WROOM-32E-N8R2,RF_Module:ESP32-WROOM-32E,"Sufficient for MPN, SMT. Use Espressif KiCad Lib. Verify footprint."
-1,"LDO Voltage Regulator, 3.3V, 1A",AMS1117-3.3,Package_TO_SOT_SMD:SOT-223-3,"Common LDO, requires caps."
 1 little red smd led, the little kind you'd find on an Arduino to tell you it's powered on
+A very popular 3.3v LDO regulator.
 25 individual cherry mx keys that I can solder on for a custom keyboard
 6 0.1uf ceramic caps, 0805</textarea>
                 <button id="submitButton" disabled>Submit</button>

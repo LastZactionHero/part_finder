@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List, Dict
 import datetime
 import uuid
 import logging
@@ -21,12 +21,47 @@ from ..db.crud import (
     update_project_status
 )
 from ..db.session import get_db
+from ..core.llm_handler import get_llm_response, LlmApiError
 
 router = APIRouter(prefix="/project", tags=["projects"])
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def format_bom_reformat_prompt(raw_components: str) -> str:
+    """Format the prompt for the LLM to reformat BOM components.
+    
+    Args:
+        raw_components: JSON string of the raw component list
+        
+    Returns:
+        Formatted prompt string
+    """
+    return f"""You are a helpful assistant that reformats Bill of Materials (BOM) data into a standardized format. 
+Your task is to convert the following BOM data into a list of components matching this schema:
+{{
+    "qty": int,
+    "description": str,
+    "package": str,
+    "possible_mpn": Optional[str],
+    "notes": Optional[str]
+}}
+
+Input BOM data:
+{raw_components}
+
+Rules:
+1. Map any quantity field to "qty" (convert to integer)
+2. Map any description, value, or name field to "description"
+3. Map any footprint, package, or similar field to "package"
+4. Map any manufacturer part number, MPN, or similar field to "possible_mpn"
+5. Map any additional notes, datasheet URLs, or other metadata to "notes"
+6. If a field is missing, use appropriate defaults (1 for qty, "unknown" for package)
+7. Return ONLY a valid JSON array of objects matching the schema above
+8. Do not include any explanatory text, just the JSON
+
+Return the reformatted BOM as a JSON array with no other text. It will the parsed directly."""
 
 @router.post("")
 async def create_project(
@@ -50,8 +85,35 @@ async def create_project(
         if not isinstance(raw_components, list):
              raise HTTPException(status_code=400, detail="Input 'components' must be a list.")
 
+        # Attempt to reformat components using LLM
+        use_llm_output = False
+        try:
+            # Convert raw components to JSON string for LLM
+            raw_components_json = json.dumps(raw_components)
+            prompt = format_bom_reformat_prompt(raw_components_json)
+            
+            # Get reformatted components from LLM
+            llm_response = get_llm_response(prompt)
+            if llm_response:
+                logger.info(f"Raw LLM response: {llm_response}")
+                # Extract JSON from markdown code blocks if present
+                if llm_response.startswith("```json"):
+                    # Find the content between the first and last backticks
+                    json_content = llm_response.split("```json")[1].split("```")[0].strip()
+                    llm_response = json_content
+                # Try to parse the LLM response as JSON
+                reformatted_components = json.loads(llm_response)
+                if isinstance(reformatted_components, list):
+                    use_llm_output = True
+                    logger.info("Successfully reformatted components using LLM")
+                else:
+                    logger.warning("LLM response was not a list")
+        except (LlmApiError, json.JSONDecodeError) as e:
+            logger.warning(f"LLM reformatting failed: {e}. Falling back to direct processing.")
+
         # Process components, applying fallback for invalid ones
-        for i, comp_data in enumerate(raw_components):
+        components_to_process = reformatted_components if use_llm_output else raw_components
+        for i, comp_data in enumerate(components_to_process):
             if not isinstance(comp_data, dict):
                  logger.warning(f"Component item at index {i} is not a dictionary, skipping.")
                  errors.append(f"Item at index {i} is not a dictionary: {comp_data}")

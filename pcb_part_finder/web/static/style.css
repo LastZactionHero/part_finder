@@ -133,6 +133,14 @@ textarea:focus {
     box-shadow: 0 0 0 3px rgba(255, 0, 255, 0.1);
 }
 
+.hint-text {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-style: italic;
+    margin: 0.5rem 0 1rem;
+    opacity: 0.8;
+}
+
 input[type="text"] {
     width: 100%;
     padding: 1.25rem;
