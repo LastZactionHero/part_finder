@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select, update
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Any
 import datetime
+from sqlalchemy.exc import IntegrityError
 
 from .models import Project, BomItem, Component, BomItemMatch
 from ..schemas import InputBOM, BOMComponent
@@ -225,40 +226,54 @@ def update_project_status(
     db.commit()
     return True
 
-def get_or_create_component(
-    db: Session,
-    component_data: Dict
-) -> Component:
+def get_or_create_component(db: Session, component_data: Dict[str, Any]) -> Optional[Component]:
     """
-    Get an existing component or create a new one based on Mouser part number.
-    Updates existing component's fields if found.
-    
-    Args:
-        db: Database session
-        component_data: Dictionary containing component data
-        
-    Returns:
-        The found or created Component instance
+    Get an existing component by Mouser Part Number or create a new one.
+    Uses Manufacturer Part Number as a secondary check if Mouser Part Number is missing
+    or doesn't yield a result initially.
     """
-    # Try to find existing component
-    component = db.query(Component).filter(
-        Component.mouser_part_number == component_data['mouser_part_number']
-    ).first()
-    
+    mpn = component_data.get('manufacturer_part_number')
+    mouser_pn = component_data.get('mouser_part_number')
+    component = None
+
+    # Prioritize lookup by Mouser Part Number if available
+    if mouser_pn:
+        component = db.query(Component).filter(Component.mouser_part_number == mouser_pn).first()
+
+    # If not found by Mouser PN, or Mouser PN wasn't provided, try MPN
+    if not component and mpn:
+         component = db.query(Component).filter(Component.manufacturer_part_number == mpn).first()
+
     if component:
-        # Update fields from component_data
-        for key, value in component_data.items():
-            if hasattr(component, key):
-                setattr(component, key, value)
-        component.last_updated = datetime.datetime.utcnow()
+        # Optionally update existing component data here if needed
+        # For now, just return the found component
+        # Example: component.price = component_data.get('price', component.price)
+        # db.commit() # If updates are made
+        return component
     else:
-        # Create new component
-        component = Component(**component_data)
-        db.add(component)
-    
-    db.commit()
-    db.refresh(component)
-    return component
+        # If still not found, create a new component record
+        new_component = Component(**component_data)
+        try:
+            db.add(new_component)
+            db.flush() # Use flush to get the ID without full commit yet
+            return new_component
+        except IntegrityError:
+            db.rollback() # Rollback if integrity error (e.g., duplicate key constraint)
+            # Try fetching again in case of race condition
+            if mouser_pn:
+                 component = db.query(Component).filter(Component.mouser_part_number == mouser_pn).first()
+            if not component and mpn:
+                 component = db.query(Component).filter(Component.manufacturer_part_number == mpn).first()
+            return component # Return component found after rollback/retry or None
+        except Exception:
+            db.rollback()
+            raise # Re-raise other exceptions
+
+def get_component_by_mpn(db: Session, mpn: str) -> Optional[Component]:
+    """Retrieve a component by its Manufacturer Part Number."""
+    if not mpn: # Avoid querying with an empty string
+        return None
+    return db.query(Component).filter(Component.manufacturer_part_number == mpn).first()
 
 def create_bom_item_match(
     db: Session,

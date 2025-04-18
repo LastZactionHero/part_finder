@@ -9,7 +9,8 @@ from pcb_part_finder.db.models import Project, BomItem, Component, BomItemMatch
 from pcb_part_finder.db.crud import (
     get_or_create_component, 
     create_bom_item_match, 
-    update_project_status # Import for error handling
+    update_project_status, # Import for error handling
+    get_component_by_mpn # Import the new function
 ) 
 from .data_loader import load_project_data_from_db
 # Remove the bulk save function import, no longer needed
@@ -67,7 +68,8 @@ def process_project_from_db(project_id: str, db: Session) -> bool:
             mouser_results = []
             unique_mouser_part_numbers = set()
             chosen_mpn = None
-            final_part_details = None
+            component_record = None # Will hold Component ORM object if found/created
+            final_part_details = None # Will hold dict from Mouser API if needed
             component_id = None
             
             try:
@@ -103,14 +105,42 @@ def process_project_from_db(project_id: str, db: Session) -> bool:
                         logger.warning(f"LLM did not select MPN for item {bom_item.bom_item_id}")
                         status = 'evaluation_failed'
 
-                # Step 5: Get Final Part Details from Mouser by MPN
+                # Step 5: Check DB / Get Final Part Details from Mouser by MPN
                 if status == 'pending' and chosen_mpn:
-                    final_part_details = mouser_api.search_mouser_by_mpn(chosen_mpn)
-                    if final_part_details:
+                    # First, check if the component already exists in our DB
+                    component_record = get_component_by_mpn(db, chosen_mpn)
+                    if component_record:
+                        logger.info(f"Found existing component in DB for MPN {chosen_mpn} (ID: {component_record.component_id})")
                         status = 'matched'
+                        component_id = component_record.component_id
                     else:
-                        logger.warning(f"Mouser MPN search failed for MPN '{chosen_mpn}' (item {bom_item.bom_item_id})")
-                        status = 'mpn_lookup_failed'
+                        # If not in DB, call Mouser API
+                        logger.info(f"MPN {chosen_mpn} not found in DB, querying Mouser...")
+                        final_part_details = mouser_api.search_mouser_by_mpn(chosen_mpn)
+                        if final_part_details:
+                            # Found via Mouser API, now get/create the component record in DB
+                            component_data = {
+                                'mouser_part_number': final_part_details.get('Mouser Part Number'),
+                                'manufacturer_part_number': final_part_details.get('Manufacturer Part Number'), # Should match chosen_mpn
+                                'manufacturer_name': final_part_details.get('Manufacturer Name'),
+                                'description': final_part_details.get('Mouser Description'),
+                                'datasheet_url': final_part_details.get('Datasheet URL'),
+                                'price': final_part_details.get('Price'), 
+                                'availability': final_part_details.get('Availability'),
+                                # Add other Component fields if needed
+                            }
+                            component_data = {k: v for k, v in component_data.items() if v is not None}
+                            component_record = get_or_create_component(db, component_data)
+                            if component_record:
+                                logger.info(f"Created/Found component record for MPN {chosen_mpn} (ID: {component_record.component_id}) after Mouser lookup")
+                                status = 'matched'
+                                component_id = component_record.component_id
+                            else:
+                                logger.error(f"Failed to get/create component for item {bom_item.bom_item_id}, MPN {chosen_mpn} after Mouser lookup")
+                                status = 'component_db_error'
+                        else:
+                            logger.warning(f"Mouser MPN search failed for MPN '{chosen_mpn}' (item {bom_item.bom_item_id})")
+                            status = 'mpn_lookup_failed'
 
             # Catch specific API errors during item processing
             except LlmApiError as e:
@@ -122,39 +152,21 @@ def process_project_from_db(project_id: str, db: Session) -> bool:
             except Exception as item_err: # Catch unexpected errors for this item
                 logger.error(f"Unexpected error processing item {bom_item.bom_item_id}: {item_err}", exc_info=True)
                 status = 'processing_error'
-            
+            e
             # Step 6: Format and Store Result (Progressively)
             # --- Start DB interaction for this item ---
             try:
-                component_record = None
-                if status == 'matched' and final_part_details:
-                    # Prepare data for the Component table
-                    component_data = {
-                        'mouser_part_number': final_part_details.get('Mouser Part Number'),
-                        'manufacturer_part_number': final_part_details.get('Manufacturer Part Number'),
-                        'manufacturer_name': final_part_details.get('Manufacturer Name'),
-                        'description': final_part_details.get('Mouser Description'),
-                        'datasheet_url': final_part_details.get('Datasheet URL'),
-                        # Ensure price is Decimal compatible or None
-                        'price': final_part_details.get('Price'), 
-                        'availability': final_part_details.get('Availability'),
-                        # Add other Component fields if needed
-                    }
-                    # Filter out None values before creating/updating
-                    component_data = {k: v for k, v in component_data.items() if v is not None}
-
-                    # Get or create the component record
-                    component_record = get_or_create_component(db, component_data)
-                    if component_record:
-                        component_id = component_record.component_id
-                        # Add details of the selected part for context
-                        selected_part_details.append({
-                            'Description': part_info.get('Description', ''),
-                            'Manufacturer Part Number': final_part_details.get('Manufacturer Part Number')
-                        })
-                    else:
-                        logger.error(f"Failed to get/create component for item {bom_item.bom_item_id}, MPN {chosen_mpn}")
-                        status = 'component_db_error' # Update status if DB interaction failed
+                # If a match was found (either from DB or Mouser) and we have a component record,
+                # add its details to the context for subsequent LLM calls in this project.                 
+                if status == 'matched' and component_record:
+                    selected_part_details.append({
+                        'Description': part_info.get('Description', ''),
+                        'Manufacturer Part Number': component_record.manufacturer_part_number
+                    })
+                elif status == 'matched' and component_record is None:
+                     # This case should ideally not happen if the logic above is correct
+                     logger.error(f"Internal logic error: status is 'matched' but no component record found for item {bom_item.bom_item_id}")
+                     status = 'error' # Treat as an internal error
                 
                 # Ensure status is not 'pending' before saving match
                 if status == 'pending':
