@@ -141,13 +141,32 @@ async function pollProjectStatus(projectId) {
                 </div>
             `;
             setTimeout(() => pollProjectStatus(projectId), 10000); // Poll every 10 seconds
+        } else if (status.status === 'processing') {
+            statusMessage.innerHTML = `
+                <div class="status-message">
+                    <p>Your project is processing...</p>
+                </div>
+            `;
+            setTimeout(() => pollProjectStatus(projectId), 5000); // Poll faster (every 5 seconds)
+        } else if (status.status === 'error') {
+            statusMessage.innerHTML = '<div class="error">Processing failed.</div>';
+            submitButton.disabled = false;
+            submitButton.textContent = 'Submit';
         } else if (status.status === 'finished') {
             statusMessage.innerHTML = '<div class="success">Processing complete!</div>';
             updateResultsTable(status.bom.components);
             resultsSection.classList.remove('hidden');
+            submitButton.disabled = false;
+            submitButton.textContent = 'Submit';
+        } else {
+            statusMessage.innerHTML = `<div class="error">Unknown project status: ${status.status}</div>`;
+            submitButton.disabled = false;
+            submitButton.textContent = 'Submit';
         }
     } catch (error) {
-        statusMessage.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+        statusMessage.innerHTML = `<div class="error">Error fetching status: ${error.message}</div>`;
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit';
     }
 }
 

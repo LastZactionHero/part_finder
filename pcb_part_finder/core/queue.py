@@ -92,7 +92,7 @@ def process_queue():
                     ).first()
                     
                     if project:
-                        project.status = 'complete' if success else 'failed'
+                        project.status = 'finished' if success else 'failed'
                         project.end_time = datetime.now()
                         db.commit()
                         logger.info(f"Updated project {project_id} status to {project.status}")

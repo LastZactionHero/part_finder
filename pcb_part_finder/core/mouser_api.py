@@ -151,9 +151,10 @@ def search_mouser_by_mpn(mpn: str) -> Optional[Dict[str, Any]]:
                     # Sort by quantity and take the lowest
                     price_breaks.sort(key=lambda x: x.get('Quantity', float('inf')))
                     price_str = price_breaks[0].get('Price', 'N/A')
-                    # Remove any existing $ symbol as we'll add our own
+                    # Remove any existing $ symbol
                     price_str = price_str.replace('$', '')
-                    price = f"${price_str}" if price_str != 'N/A' else 'N/A'
+                    # Store the numeric string or 'N/A', without adding '$'
+                    price = price_str if price_str != 'N/A' else 'N/A'
                 
                 # Extract availability
                 availability = "Unknown"

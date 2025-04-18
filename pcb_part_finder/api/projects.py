@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 from typing import Optional
 import datetime
 import uuid
+import logging
 
 from ..schemas import InputBOM, MatchedBOM, MatchedComponent, BOMComponent
 from ..db.crud import (
-    create_project,
+    create_project as crud_create_project,
     create_bom_item,
     get_project_by_id,
     get_bom_items_for_project,
@@ -20,6 +21,10 @@ from ..db.crud import (
 from ..db.session import get_db
 
 router = APIRouter(prefix="/project", tags=["projects"])
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @router.post("")
 async def create_project(
@@ -35,29 +40,37 @@ async def create_project(
         truncation_info = None
         if len(bom.components) > 20:
             truncation_info = f"BOM truncated from {len(bom.components)} to 20 components"
+            logger.info(truncation_info)
             bom.components = bom.components[:20]
         
         # Generate project ID using UUID
         project_id = str(uuid.uuid4())
         
+        logger.info(f"Creating project {project_id} with description: {bom.project_description}")
+        logger.info(f"BOM has {len(bom.components)} components.")
+        
         # Create project in database
-        db_project = create_project(
+        db_project = crud_create_project(
             db=db,
             project_id=project_id,
             description=bom.project_description,
             status='queued'
         )
+        logger.info(f"Project entry created for {project_id}")
         
         # Create BOM items
-        for comp in bom.components:
+        for i, comp in enumerate(bom.components):
+            logger.info(f"Creating BOM item {i+1}/{len(bom.components)} for project {project_id}: Qty={comp.qty}, Desc={comp.description[:50]}...")
             create_bom_item(
                 db=db,
                 item=comp,
                 project_id=project_id
             )
+        logger.info(f"All BOM items created for {project_id}")
         
         # Commit all changes
         db.commit()
+        logger.info(f"Project {project_id} committed successfully.")
         
         return {
             "project_id": project_id,
@@ -66,6 +79,7 @@ async def create_project(
     except Exception as e:
         # Rollback on error
         db.rollback()
+        logger.error(f"Error creating project: {e}", exc_info=True)  # Log detailed error
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{project_id}")
@@ -112,6 +126,58 @@ async def get_project(
             "position": position,
             "total_in_queue": total_in_queue,
             "bom": bom.model_dump()
+        }
+    
+    # Handle processing projects
+    elif db_project.status == 'processing':
+        # Similar to queued, return the original BOM and indicate status
+        db_items = get_bom_items_for_project(db=db, project_id=project_id)
+        components = []
+        for db_item in db_items:
+            component = BOMComponent(
+                qty=db_item.quantity,
+                description=db_item.description,
+                possible_mpn=db_item.notes,  # notes field used for possible_mpn
+                package=db_item.package
+            )
+            components.append(component)
+        
+        bom = InputBOM(
+            components=components,
+            project_description=db_project.description
+        )
+        
+        return {
+            "status": "processing",
+            "bom": bom.model_dump()
+            # Optionally add start_time if available
+            # "start_time": db_project.start_time.isoformat() if db_project.start_time else None
+        }
+    
+    # Handle errored projects
+    elif db_project.status == 'error':
+        # Similar to processing, return the original BOM and indicate error status
+        db_items = get_bom_items_for_project(db=db, project_id=project_id)
+        components = []
+        for db_item in db_items:
+            component = BOMComponent(
+                qty=db_item.quantity,
+                description=db_item.description,
+                possible_mpn=db_item.notes,  # notes field used for possible_mpn
+                package=db_item.package
+            )
+            components.append(component)
+        
+        bom = InputBOM(
+            components=components,
+            project_description=db_project.description
+        )
+        
+        return {
+            "status": "error",
+            "bom": bom.model_dump()
+            # Optionally add end_time to show when it failed
+            # "end_time": db_project.end_time.isoformat() if db_project.end_time else None
         }
     
     # Handle finished projects

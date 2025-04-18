@@ -3,6 +3,7 @@
 import csv
 from typing import List, Dict, Any
 import logging
+from decimal import Decimal, InvalidOperation
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from pcb_part_finder.db.models import BomItem, Component, BomItemMatch
@@ -116,7 +117,7 @@ def save_bom_results_to_db(project_id: str, bom_items_with_matches: List[Dict], 
             # Get the original BOM item
             bom_item = db.query(BomItem).filter(
                 BomItem.project_id == project_id,
-                BomItem.id == item_data['bom_item_id']
+                BomItem.bom_item_id == item_data['bom_item_id']
             ).first()
             
             if not bom_item:
@@ -130,39 +131,60 @@ def save_bom_results_to_db(project_id: str, bom_items_with_matches: List[Dict], 
                     Component.mouser_part_number == match_data['mouser_part_number']
                 ).first()
                 
-                if not component:
+                if not component and match_data.get('mouser_part_number'):
+                    # Convert price string to Decimal, handle errors/Nones
+                    price_value = match_data.get('price')
+                    price_decimal = None
+                    if price_value and price_value != 'N/A':
+                        try:
+                            price_decimal = Decimal(price_value)
+                        except InvalidOperation:
+                            logger.warning(f"Could not convert price '{price_value}' to Decimal for component {match_data.get('mouser_part_number')}")
+                    
                     # Create new component
                     component = Component(
                         mouser_part_number=match_data['mouser_part_number'],
-                        manufacturer=match_data.get('manufacturer'),
+                        manufacturer_name=match_data.get('manufacturer_name'),
                         description=match_data.get('description'),
                         datasheet_url=match_data.get('datasheet_url'),
-                        image_url=match_data.get('image_url'),
-                        price=match_data.get('price'),
-                        stock=match_data.get('stock')
+                        price=price_decimal,
+                        availability=match_data.get('availability')
                     )
                     db.add(component)
                     try:
                         db.flush()  # Get the component ID without committing
-                    except IntegrityError:
+                    except IntegrityError as e:
                         db.rollback()
-                        logger.error(f"Error creating component for Mouser PN {match_data['mouser_part_number']}")
+                        logger.error(f"Integrity error creating component for Mouser PN {match_data.get('mouser_part_number')}: {e}")
+                        # Try fetching again in case of race condition
+                        component = db.query(Component).filter(
+                            Component.mouser_part_number == match_data['mouser_part_number']
+                        ).first()
+                        if not component:
+                           logger.error("Component still not found after rollback, skipping match.")
+                           continue
+                    except Exception as e:
+                        db.rollback()
+                        logger.error(f"Error flushing new component {match_data.get('mouser_part_number')}: {e}")
                         continue
-                
-                # Create the BomItemMatch
-                match = BomItemMatch(
-                    bom_item_id=bom_item.id,
-                    component_id=component.id,
-                    confidence_score=match_data.get('confidence_score', 0.0),
-                    match_status=match_data.get('status', 'matched'),
-                    notes=match_data.get('notes')
-                )
-                db.add(match)
-                
-                # Update the BOM item if this is the primary match
-                if match_data.get('is_primary', False):
-                    bom_item.primary_match_id = match.id
-                    bom_item.processed = True
+
+                # Create the BomItemMatch only if we have a component
+                if component:
+                    match = BomItemMatch(
+                        bom_item_id=bom_item.bom_item_id,
+                        component_id=component.component_id,
+                        match_status=match_data.get('match_status', 'unknown')
+                    )
+                    db.add(match)
+                else:
+                    # If component creation failed or wasn't attempted (e.g., no MPN in match_data)
+                    # Create a match entry without a component link to record the status
+                    match = BomItemMatch(
+                        bom_item_id=bom_item.bom_item_id,
+                        component_id=None,
+                        match_status=match_data.get('match_status', 'error')
+                    )
+                    db.add(match)
         
         # Commit all changes
         db.commit()
