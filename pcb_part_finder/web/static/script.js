@@ -137,50 +137,101 @@ async function getProjectStatus(projectId) {
     }
 }
 
-// Update the results table
+// Update results table
 function updateResultsTable(components) {
-    resultsTable.innerHTML = '';
+    resultsTable.innerHTML = ''; // Clear existing rows
+
+    const statusDisplayMap = {
+        'matched': 'Matched',
+        'search_term_failed': 'No Match Found',
+        'no_keyword_results': 'No Match Found',
+        'evaluation_failed': 'LLM Evaluation Failed',
+        'mpn_lookup_failed': 'Mouser Lookup Failed',
+        'llm_error': 'LLM Evaluation Failed',
+        'mouser_error': 'Mouser Lookup Failed',
+        'component_db_error': 'System Error',
+        'db_save_error': 'System Error',
+        'processing_error': 'System Error',
+        'worker_uncaught_exception': 'System Error',
+        'error': 'System Error', // Generic internal error
+        'pending': 'Processing...', // For items still in progress
+        'no_match_record': 'No Match', // If backend uses this for finished items without a match record
+    };
+    const defaultStatusText = 'Unknown Status';
+
     components.forEach(component => {
         const row = resultsTable.insertRow();
-        row.insertCell(0).textContent = component.qty;
-        row.insertCell(1).textContent = component.description;
-        
-        const mouserCell = row.insertCell(2);
-        const statusCell = row.insertCell(3); // Add a cell for explicit status
-        const manufacturerCell = row.insertCell(4);
-        const priceCell = row.insertCell(5);
-        const availabilityCell = row.insertCell(6);
+        const qtyCell = row.insertCell();
+        const descCell = row.insertCell();
+        const mpnCell = row.insertCell(); // Manufacturer Part Number
+        const manufCell = row.insertCell(); // Manufacturer Name
+        const statusCell = row.insertCell();
+        const priceCell = row.insertCell();
+        const availCell = row.insertCell();
+        const datasheetCell = row.insertCell();
 
-        // Set default/pending values
-        mouserCell.textContent = '-';
-        statusCell.textContent = 'Pending...'; 
-        statusCell.classList.add('status-pending');
-        manufacturerCell.textContent = 'N/A';
-        priceCell.textContent = 'N/A';
-        availabilityCell.textContent = 'N/A';
-        
-        if (component.match_status === 'matched' && component.mouser_part_number) {
+        qtyCell.textContent = component.qty;
+        descCell.textContent = component.description;
+        mpnCell.textContent = component.manufacturer_part_number || 'N/A';
+        manufCell.textContent = component.manufacturer_name || 'N/A';
+        priceCell.textContent = component.price ? `$${component.price.toFixed(2)}` : 'N/A';
+        availCell.textContent = component.availability || 'N/A';
+
+        // Set status text using the map
+        statusCell.textContent = statusDisplayMap[component.match_status] || defaultStatusText;
+
+        // --- New CSS Class Logic ---
+        // Helper function or logic to get the CSS class based on status
+        const getStatusClass = (status) => {
+            switch (status) {
+                case 'matched':
+                    return 'status-matched';
+                case 'search_term_failed':
+                case 'no_keyword_results':
+                case 'no_match_record':
+                    return 'status-no-match';
+                case 'evaluation_failed':
+                    return 'status-evaluation-needed';
+                case 'mpn_lookup_failed':
+                    return 'status-lookup-failed';
+                case 'llm_error':
+                case 'mouser_error':
+                    return 'status-api-error';
+                case 'component_db_error':
+                case 'db_save_error':
+                case 'processing_error':
+                case 'worker_uncaught_exception':
+                case 'error':
+                    return 'status-system-error';
+                case 'pending':
+                    return 'status-pending';
+                default:
+                    return 'status-unknown';
+            }
+        };
+
+        // Remove all potential status classes before adding the new one
+        statusCell.classList.remove(
+            'status-matched', 'status-no-match', 'status-evaluation-needed',
+            'status-lookup-failed', 'status-api-error', 'status-system-error',
+            'status-pending', 'status-unknown'
+        );
+
+        // Add the specific CSS class based on the status
+        const statusClass = getStatusClass(component.match_status);
+        statusCell.classList.add(statusClass);
+        // --- End New CSS Class Logic ---
+
+        // Add datasheet link if available
+        if (component.datasheet_url) {
             const link = document.createElement('a');
-            link.href = `https://www.mouser.com/ProductDetail/${component.mouser_part_number}`;
-            link.textContent = component.mouser_part_number;
-            link.target = '_blank';
-            mouserCell.innerHTML = ''; // Clear default '-'
-            mouserCell.appendChild(link);
-            statusCell.textContent = 'Matched';
-            statusCell.classList.remove('status-pending');
-            statusCell.classList.add('status-matched');
-            manufacturerCell.textContent = component.manufacturer_name || 'N/A';
-            priceCell.textContent = component.price ? `$${component.price.toFixed(2)}` : 'N/A'; // Format price
-            availabilityCell.textContent = component.availability || 'N/A';
-        } else if (component.match_status && component.match_status !== 'pending') {
-            // Any status other than pending or matched indicates a finished non-match
-            mouserCell.textContent = '-'; // Keep default '-'
-            statusCell.textContent = 'No Match'; // Or use component.match_status for detail?
-            statusCell.classList.remove('status-pending');
-            statusCell.classList.add('status-no-match');
-            // Keep N/A for other fields
+            link.href = component.datasheet_url;
+            link.textContent = 'Link';
+            link.target = '_blank'; // Open in new tab
+            datasheetCell.appendChild(link);
+        } else {
+            datasheetCell.textContent = 'N/A';
         }
-        // If status is still 'pending', the defaults are already set
     });
 }
 

@@ -142,7 +142,6 @@ async def get_project(
                 "description": db_bom_item.description,
                 "possible_mpn": db_bom_item.notes,  # notes field used for possible_mpn
                 "package": db_bom_item.package,
-                # Initialize match fields as None
                 "mouser_part_number": None,
                 "manufacturer_part_number": None,
                 "manufacturer_name": None,
@@ -153,7 +152,11 @@ async def get_project(
                 "match_status": "pending" # Default status for processing items
             }
             
-            # If we have a match and component, add the match data
+            # Set the match status based on db_match presence first
+            if db_match:
+                component_dict["match_status"] = db_match.match_status
+            
+            # If we have a match and component, add the component data
             if db_match and db_component:
                 component_dict.update({
                     "mouser_part_number": db_component.mouser_part_number,
@@ -163,11 +166,7 @@ async def get_project(
                     "datasheet_url": db_component.datasheet_url,
                     "price": float(db_component.price) if db_component.price else None,
                     "availability": db_component.availability,
-                    "match_status": db_match.match_status
                 })
-            elif db_match:
-                # If we have a match but no component, use the match status
-                component_dict["match_status"] = db_match.match_status
             
             matched_components.append(MatchedComponent(**component_dict))
             
@@ -228,7 +227,6 @@ async def get_project(
                 "description": db_bom_item.description,
                 "possible_mpn": db_bom_item.notes,  # notes field used for possible_mpn
                 "package": db_bom_item.package,
-                # Initialize match fields as None
                 "mouser_part_number": None,
                 "manufacturer_part_number": None,
                 "manufacturer_name": None,
@@ -236,10 +234,14 @@ async def get_project(
                 "datasheet_url": None,
                 "price": None,
                 "availability": None,
-                "match_status": "no_match"
+                "match_status": "no_match_record" # Default status if no match record found
             }
             
-            # If we have a match and component, add the match data
+            # Set the match status based on db_match presence first
+            if db_match:
+                component_dict["match_status"] = db_match.match_status
+            
+            # If we have a match and component, add the component data
             if db_match and db_component:
                 component_dict.update({
                     "mouser_part_number": db_component.mouser_part_number,
@@ -249,11 +251,7 @@ async def get_project(
                     "datasheet_url": db_component.datasheet_url,
                     "price": float(db_component.price) if db_component.price else None,
                     "availability": db_component.availability,
-                    "match_status": db_match.match_status
                 })
-            elif db_match:
-                # If we have a match but no component, use the match status
-                component_dict["match_status"] = db_match.match_status
             
             matched_components.append(MatchedComponent(**component_dict))
         

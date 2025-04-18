@@ -247,4 +247,51 @@ a:hover {
     th, td {
         padding: 0.75rem;
     }
-} 
+}
+
+/* Status Styling */
+#resultsTable td {
+    /* Add padding for better spacing if needed */
+    padding: 8px 12px;
+    vertical-align: middle;
+}
+
+.status-matched {
+    color: #28a745; /* Green */
+    font-weight: bold;
+}
+
+.status-no-match,
+.status-evaluation-needed,
+.status-lookup-failed {
+    color: #ffc107; /* Amber/Orange */
+}
+
+.status-api-error,
+.status-system-error {
+    color: #dc3545; /* Red */
+    font-weight: bold;
+}
+
+.status-pending {
+    color: #6c757d; /* Gray */
+    font-style: italic;
+}
+
+.status-unknown {
+    color: #dc3545; /* Red */
+    font-style: italic;
+}
+
+/* Optional: Add subtle background or borders */
+/*
+#resultsTable td[class^="status-"] {
+    padding: 5px 8px;
+    border-radius: 4px;
+    text-align: center;
+}
+.status-matched { background-color: #e9f7ec; }
+.status-no-match, .status-evaluation-needed, .status-lookup-failed { background-color: #fff8e1; }
+.status-api-error, .status-system-error, .status-unknown { background-color: #fbe_DEE; }
+.status-pending { background-color: #f8f9fa; }
+*/ 
