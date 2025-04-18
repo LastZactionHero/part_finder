@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 import anthropic
-from pcb_part_finder.llm_handler import (
+from pcb_part_finder.core.llm_handler import (
     get_anthropic_client,
     get_llm_response,
     format_search_term_prompt,
@@ -30,32 +30,29 @@ def test_get_anthropic_client_missing_key():
 def test_get_llm_response_success(mocker):
     """Test successful LLM response."""
     mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="test response")]
+    mock_response.text = "test response"
     
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = mock_response
+    mock_client.models.generate_content.return_value = mock_response
     
-    mocker.patch('pcb_part_finder.llm_handler.get_anthropic_client', return_value=mock_client)
+    mocker.patch('pcb_part_finder.core.llm_handler.get_gemini_client', return_value=mock_client)
     
     result = get_llm_response("test prompt")
     assert result == "test response"
     
     # Verify the correct parameters were used
-    mock_client.messages.create.assert_called_once()
-    call_args = mock_client.messages.create.call_args[1]
-    assert call_args['model'] == "claude-3-sonnet-20240229"
-    assert call_args['temperature'] == 0.2
-    assert call_args['max_tokens'] == 500
-    assert call_args['messages'][0]['content'] == "test prompt"
+    mock_client.models.generate_content.assert_called_once()
+    call_args = mock_client.models.generate_content.call_args[1]
+    assert call_args['model'] == "gemini-2.5-pro-preview-03-25"
+    assert call_args['contents'][0].role == "user"
+    assert call_args['contents'][0].parts[0].text == "test prompt"
 
 def test_get_llm_response_api_error(mocker):
     """Test LLM response with API error."""
     mock_client = MagicMock()
-    mock_request = MagicMock()
-    mock_body = {"error": {"message": "API Error"}}
-    mock_client.messages.create.side_effect = anthropic.APIError("API Error", request=mock_request, body=mock_body)
+    mock_client.models.generate_content.side_effect = Exception("API Error")
     
-    mocker.patch('pcb_part_finder.llm_handler.get_anthropic_client', return_value=mock_client)
+    mocker.patch('pcb_part_finder.core.llm_handler.get_gemini_client', return_value=mock_client)
     
     with pytest.raises(LlmApiError) as exc_info:
         get_llm_response("test prompt")

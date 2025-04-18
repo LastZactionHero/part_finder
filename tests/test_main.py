@@ -134,12 +134,13 @@ def test_main_data_loader_error(mock_load_input, tmp_path, capsys):
     
     with patch.object(sys, 'argv', ['script.py'] + test_args):
         with patch.dict('os.environ', {'MOUSER_API_KEY': 'test_key', 'ANTHROPIC_API_KEY': 'test_key'}):
-            with pytest.raises(SystemExit):
-                main()
+            with patch('builtins.open', mock_open(read_data="Test project notes")):
+                with pytest.raises(SystemExit):
+                    main()
 
-            # Check error output
-            captured = capsys.readouterr()
-            assert "Error loading input data" in captured.err
+                # Check error output
+                captured = capsys.readouterr()
+                assert "Error loading input data" in captured.err
 
 # @patch('pcb_part_finder.core.data_loader.load_input_csv')
 # def test_main_output_writer_error(mock_load_input, tmp_path, capsys):
