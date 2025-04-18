@@ -130,26 +130,60 @@ async def get_project(
     
     # Handle processing projects
     elif db_project.status == 'processing':
-        # Similar to queued, return the original BOM and indicate status
-        db_items = get_bom_items_for_project(db=db, project_id=project_id)
-        components = []
-        for db_item in db_items:
-            component = BOMComponent(
-                qty=db_item.quantity,
-                description=db_item.description,
-                possible_mpn=db_item.notes,  # notes field used for possible_mpn
-                package=db_item.package
-            )
-            components.append(component)
+        # Get all BOM items with their current matches and components
+        results_data = get_finished_project_data(db=db, project_id=project_id)
         
-        bom = InputBOM(
-            components=components,
-            project_description=db_project.description
+        # Reconstruct matched components (even if not fully matched yet)
+        matched_components = []
+        for db_bom_item, db_match, db_component in results_data:
+            # Start with base BOM item data
+            component_dict = {
+                "qty": db_bom_item.quantity,
+                "description": db_bom_item.description,
+                "possible_mpn": db_bom_item.notes,  # notes field used for possible_mpn
+                "package": db_bom_item.package,
+                # Initialize match fields as None
+                "mouser_part_number": None,
+                "manufacturer_part_number": None,
+                "manufacturer_name": None,
+                "mouser_description": None,
+                "datasheet_url": None,
+                "price": None,
+                "availability": None,
+                "match_status": "pending" # Default status for processing items
+            }
+            
+            # If we have a match and component, add the match data
+            if db_match and db_component:
+                component_dict.update({
+                    "mouser_part_number": db_component.mouser_part_number,
+                    "manufacturer_part_number": db_component.manufacturer_part_number,
+                    "manufacturer_name": db_component.manufacturer_name,
+                    "mouser_description": db_component.description,
+                    "datasheet_url": db_component.datasheet_url,
+                    "price": float(db_component.price) if db_component.price else None,
+                    "availability": db_component.availability,
+                    "match_status": db_match.match_status
+                })
+            elif db_match:
+                # If we have a match but no component, use the match status
+                component_dict["match_status"] = db_match.match_status
+            
+            matched_components.append(MatchedComponent(**component_dict))
+            
+        # Create MatchedBOM (partially filled)
+        # Use current time for match_date as it's ongoing
+        current_time_iso = datetime.datetime.now().isoformat()
+        matched_bom = MatchedBOM(
+            components=matched_components,
+            project_description=db_project.description,
+            match_date=current_time_iso, # Indicate it's an in-progress snapshot
+            match_status=db_project.status # Keep 'processing' status
         )
         
         return {
             "status": "processing",
-            "bom": bom.model_dump()
+            "bom": matched_bom.model_dump()
             # Optionally add start_time if available
             # "start_time": db_project.start_time.isoformat() if db_project.start_time else None
         }
