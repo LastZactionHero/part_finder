@@ -72,6 +72,10 @@ Or a single test:
 
 `docker compose run --rm -v $(pwd)/tests:/app/tests api python -m pytest tests/test_main.py::test_main_success -v`
 
+Remove all docker images:
+
+`docker system prune -a --volumes`
+
 The test suite includes:
 - Data loader tests (`test_data_loader.py`)
 - Mouser API tests (`test_mouser_api.py`)

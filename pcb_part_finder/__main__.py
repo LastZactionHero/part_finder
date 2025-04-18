@@ -1,6 +1,6 @@
 import argparse
 from pcb_part_finder.core.queue import process_queue
-from pcb_part_finder.api.api import app
+from pcb_part_finder.api.main import app
 from pcb_part_finder.web.server import app as web_app
 
 def main():
