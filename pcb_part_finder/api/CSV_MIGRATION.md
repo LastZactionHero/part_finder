@@ -1,420 +1,319 @@
 
-Okay, let's build a detailed, iterative plan to migrate the FastAPI backend from CSV storage to a PostgreSQL database using SQLAlchemy.
+Okay, let's architect this refactoring process.
 
-**Project Goal:** Refactor the `pcb_part_finder` API service to use a PostgreSQL database via SQLAlchemy for storing and retrieving project and BOM data, replacing the current CSV file-based system. The external API contract (endpoints, request/response schemas) should remain unchanged.
+**Blueprint: Refactoring `queue.py` from Filesystem to Database**
 
-**Core Technologies:** FastAPI, SQLAlchemy, PostgreSQL, Pydantic, Docker.
+1.  **Goal:** Transition the project processing queue (`pcb_part_finder/core/queue.py`) from a filesystem-based approach (monitoring `projects/queue` for directories containing CSVs) to a database-driven approach. The queue processor will query a `projects` table (managed by the already refactored API) for projects with a specific status (e.g., 'queued'), process them, and update their status and results in the database.
+2.  **Current State:**
+    *   API (`pcb_part_finder/api`) interacts with a database (schema defined in `init.sql`) for project creation, status tracking, and storing BOM data (`projects`, `bom_items`, `components`, `bom_item_matches` tables).
+    *   Queue Processor (`pcb_part_finder/core/queue.py`) monitors `projects/queue/`, validates `initial_bom.csv` and `project_details.txt`, calls a core processing function (currently commented out, was passed CSV paths), moves processed projects to `projects/finished/`, and writes `results.json`.
+    *   Core processing logic (invoked by `queue.py`, likely involving `data_loader.py`, `llm_handler.py`, `mouser_api.py`, `output_writer.py`) expects input/output via CSV files.
+3.  **Target State:**
+    *   `queue.py` queries the `projects` table for `project_id`s with `status='queued'`.
+    *   Upon finding a project, `queue.py` updates its status to `status='processing'` and records `start_time`.
+    *   `queue.py` invokes a core processing function, passing the `project_id`.
+    *   The core processing function uses the `project_id` to fetch input data (BOM items, project details) from the database (likely via refactored `data_loader` or new DB access functions).
+    *   The core processing function (including `llm_handler`, `mouser_api`) performs its tasks. Any internal CSV *formatting* for LLMs remains in-memory, not using files.
+    *   The core processing function writes results (matched components, potentially updated BOM item details) back to the database (likely via refactored `output_writer` or new DB access functions).
+    *   Upon completion (success or failure) of the core processing function, `queue.py` updates the project's status (`status='complete'` or `status='failed'`) and records `end_time` in the database.
+    *   Filesystem operations (`projects/queue`, `projects/finished`, `initial_bom.csv`, `bom_matched.csv`, `results.json`) are removed from `queue.py` and related core logic.
+4.  **Key Components Involved:**
+    *   `pcb_part_finder/core/queue.py` (Main focus)
+    *   `pcb_part_finder/core/data_loader.py` (Needs DB reading logic)
+    *   `pcb_part_finder/core/output_writer.py` (Needs DB writing logic)
+    *   `pcb_part_finder/core/llm_handler.py` (Ensure no file I/O)
+    *   A new or existing module for shared database access logic/models (possibly leveraging code from `pcb_part_finder/api`).
+    *   The core processing function itself (needs interface change: `project_id` instead of file paths).
 
-**High-Level Blueprint:**
+**Iterative Steps & Refined Plan:**
 
-1.  **Setup & Dependencies:** Integrate SQLAlchemy and database connection handling.
-2.  **Database Models:** Define SQLAlchemy models corresponding to the `init.sql` schema.
-3.  **CRUD Layer:** Create functions for database interactions (Create, Read, Update, Delete) to abstract database logic.
-4.  **Endpoint Refactoring (Iterative):** Modify each API endpoint (`/project` POST, GET, DELETE, `/project/queue/length` GET) one by one to use the CRUD layer instead of filesystem/CSV operations.
-5.  **Database State Management:** Ensure project `status` ('queued', 'processing', 'finished', 'error') is correctly managed in the database, enabling the (separate) background worker to function.
-6.  **Cleanup:** Remove old filesystem code and configurations.
+*   **Phase 1: Database Foundation & Queue Polling**
+    *   **Step 1.1:** Establish DB Connection & Model Access in `core`. Make DB configuration (e.g., connection string) available to the `core` module (likely via environment variables, mirroring the API setup). Ensure necessary SQLAlchemy models (Project, BomItem, etc.) and session management utilities from the API/shared location are importable and usable within `core`. Write a basic test confirming connection.
+    *   **Step 1.2:** Refactor `get_next_project` in `queue.py`. Replace filesystem directory scanning with a database query to find one `project_id` where `status='queued'`, ordered by `created_at`. Return the `project_id` or `None`. Write unit tests mocking the DB query.
+    *   **Step 1.3:** Implement Project Status Update (Start). In `queue.py`'s main loop, after successfully getting a `project_id` from `get_next_project`, update that project's record in the database: set `status='processing'` and `start_time=datetime.now()`. Write unit tests mocking the DB update.
 
-**Iterative Implementation Steps (Refined):**
+*   **Phase 2: Core Processing Interface & Data Flow**
+    *   **Step 2.1:** Define and Call New Core Processing Function. Create a new function signature, e.g., `process_project_from_db(project_id: str, db_session: Session) -> bool:`, within the appropriate core module (maybe a new `processor.py` or refactoring the old entry point). This function will contain the main logic. Modify `queue.py` to call this function, passing the `project_id` and a DB session. Initially, this function can be a stub that just logs the `project_id` and returns `True`. Test that `queue.py` calls this function correctly.
+    *   **Step 2.2:** Implement Data Loading from DB. Refactor `data_loader.py` or add functions callable by `process_project_from_db` to fetch the project details and the list of `BomItem` objects associated with the given `project_id` from the database. Write unit tests mocking DB queries.
+    *   **Step 2.3:** Adapt LLM Handler (If Necessary). Review `llm_handler.py`. Ensure it takes structured data (like lists of `BomItem` objects or dictionaries) as input, performs any necessary internal formatting (e.g., to a CSV-like string *in memory* if required by the LLM prompt structure), processes the LLM call, and returns structured data. Remove any residual file read/write operations. Write unit tests for its data transformation logic.
+    *   **Step 2.4:** Implement Data Writing to DB. Refactor `output_writer.py` or add functions callable by `process_project_from_db` to save the results. This involves creating/updating `bom_item_matches` records and potentially updating fields in the original `bom_items` records based on the processing outcome. Write unit tests mocking DB writes.
 
-*   **Phase 1: Foundation & Basic Read/Write**
-    1.  **Step 1.1: Add Dependencies:** Update requirements for SQLAlchemy and the PostgreSQL driver.
-    2.  **Step 1.2: Database Configuration & Session:** Set up SQLAlchemy engine, session factory, and a FastAPI dependency (`get_db`) to manage database sessions per request.
-    3.  **Step 1.3: Define Core Models:** Create SQLAlchemy models for `Project` and `BomItem`.
-    4.  **Step 1.4: Implement Core CRUD:** Create CRUD functions for creating `Project` and `BomItem` records, and retrieving a `Project` by ID.
-    5.  **Step 1.5: Refactor `POST /project`:** Modify the project creation endpoint to use the new CRUD functions to save data to the database instead of CSV. Inject the DB session.
-*   **Phase 2: Reading Queued & Basic Info**
-    6.  **Step 2.1: Implement Queued Read CRUD:** Add CRUD functions to retrieve `BomItem`s for a given project and to get project status and queue information (count, position).
-    7.  **Step 2.2: Refactor `GET /project/{project_id}` (Queued):** Modify the project retrieval endpoint to handle the 'queued' status by fetching data from the DB using CRUD functions. Inject the DB session.
-    8.  **Step 2.3: Refactor `GET /project/queue/length`:** Modify the queue length endpoint to use a CRUD function querying the database. Inject the DB session.
-*   **Phase 3: Handling Finished State & Deletion**
-    9.  **Step 3.1: Define Matching Models:** Create SQLAlchemy models for `Component` and `BomItemMatch`.
-    10. **Step 3.2: Implement Matching CRUD:** Create CRUD functions for finding/creating `Component`s and creating `BomItemMatch` records. Add CRUD function(s) to retrieve all data needed for a 'finished' project (joins likely needed). Add CRUD function to update project status (e.g., to 'cancelled' or 'deleted').
-    11. **Step 3.3: Refactor `GET /project/{project_id}` (Finished):** Enhance the project retrieval endpoint to handle the 'finished' status, fetching enriched BOM data from the database using CRUD functions and reconstructing the `MatchedBOM`.
-    12. **Step 3.4: Refactor `DELETE /project/{project_id}`:** Modify the project deletion endpoint to update the project status in the database (e.g., to 'cancelled') instead of removing files. Inject the DB session.
-*   **Phase 4: Worker Integration & Cleanup**
-    13. **Step 4.1: Worker Prerequisite CRUD:** Ensure necessary CRUD functions exist for the (separate) background worker: finding the next 'queued' project, updating status to 'processing', 'finished', or 'error', setting start/end times. (Note: Actual worker refactor is outside these prompts but relies on this).
-    14. **Step 4.2: Final Code Cleanup:** Remove all unused filesystem/CSV-related code, imports (`pandas`, `Path`, `shutil`), helper functions (`bom_to_dataframe`, `dataframe_to_bom`, `read_project_details`), and constants (`PROJECTS_DIR`, etc.) from the API codebase.
-    15. **Step 4.3: Configuration Cleanup:** Remove the `projects` volume mount from the `api` service in `docker-compose.yml`.
-
-This breakdown provides small, logical steps, building database interaction incrementally into the existing API structure.
+*   **Phase 3: Completion & Cleanup**
+    *   **Step 3.1:** Implement Project Status Update (End). Modify the `try...except` block in `queue.py` that calls `process_project_from_db`. On successful return, update the project status to `'complete'`. On exception, update the status to `'failed'`. In both cases, set the `end_time`. Write unit tests mocking the DB updates for both success and failure scenarios.
+    *   **Step 3.2:** Remove Filesystem Logic from `queue.py`. Delete the `validate_project_files` function. Remove all code related to `Path` objects for queue/finished directories, `shutil.move`, `results.json` creation, and the `sys.argv` manipulation used to call the old processing function. Clean up unused imports.
+    *   **Step 3.3:** Remove Filesystem Logic from Core Processing. Ensure `data_loader.py`, `output_writer.py`, and the main `process_project_from_db` function no longer reference or expect `initial_bom.csv` or `bom_matched.csv` file paths or perform file I/O for the main data flow.
+    *   **Step 3.4:** Integration Test. Perform an end-to-end test: Create a project via the API (which should set status to 'queued'). Run the `queue.py` worker. Observe logs and verify in the database that the project status transitions correctly (`queued` -> `processing` -> `complete`/`failed`), timestamps are set, and results (e.g., `bom_item_matches`) are populated.
 
 ---
 
 **LLM Prompts for Implementation:**
 
-Below are the prompts designed to guide a code-generation LLM through the refactoring process, step-by-step.
+**Context:** We are refactoring the `pcb_part_finder/core/queue.py` script and related core modules (`data_loader.py`, `output_writer.py`, etc.) to use a database for project queuing and data handling, instead of the current filesystem/CSV-based approach. The API (`pcb_part_finder/api`) already handles database interactions and defines SQLAlchemy models (`Project`, `BomItem`, etc.) and potentially session management. Assume database connection details are available via environment variables (e.g., `DATABASE_URL`).
 
-**Prompt 1: Add Dependencies**
+---
+
+**Prompt 1: Setup Database Access in Core**
+
 ```text
-Objective: Update the dependencies for the API service to include SQLAlchemy and the PostgreSQL driver.
+Goal: Enable database access within the `pcb_part_finder.core` module using the same settings and models as the `pcb_part_finder.api` module.
 
-Instructions:
-1.  Modify the appropriate requirements file (e.g., `requirements.txt` or within a `pyproject.toml` if using Poetry) for the API service.
-2.  Add `SQLAlchemy` (version 2.x recommended).
-3.  Add `psycopg2-binary` (or `psycopg[binary]`) as the PostgreSQL database adapter.
-4.  Optionally, add `alembic` for database migrations, although we won't implement migrations in these steps.
-5.  Optionally, add `asyncpg` if planning for async database operations (we will assume synchronous operations for simplicity unless specified otherwise).
+Task:
+1.  Create a new file `pcb_part_finder/core/database.py`.
+2.  In `database.py`, set up SQLAlchemy core components (engine, SessionLocal) using the `DATABASE_URL` environment variable. This setup should mirror the database setup in the API module (look for how the engine and SessionLocal are created there, likely in `api/database.py` or similar).
+3.  Define a dependency function `get_db()` in `database.py` that yields a database session and ensures it's closed afterwards, similar to how it's likely done for FastAPI dependencies in the API.
+4.  Ensure necessary SQLAlchemy models (e.g., `Project`, `BomItem` from `api.models` or a shared `models.py`) can be imported and are recognized by the engine/session (e.g., via `Base.metadata.create_all(bind=engine)` if necessary, though table creation might be handled elsewhere).
+5.  Add basic configuration loading (e.g., using `python-dotenv`) to load `.env` files if present.
+6.  In `pcb_part_finder/core/__init__.py`, ensure the core modules can access the components defined in `pcb_part_finder.core.database`.
+7.  Write a simple test script or add a temporary check within `queue.py` (under `if __name__ == "__main__":`) that attempts to acquire a DB session using `get_db()` and performs a trivial query (e.g., `session.query(Project).first()`) to verify connectivity. This test part can be removed later.
 
-Context: This is the first step in migrating the FastAPI backend from CSV files to a PostgreSQL database. We need the necessary libraries to interact with the database using an ORM.
+Context Files:
+- `pcb_part_finder/api/database.py` (or similar, for reference)
+- `pcb_part_finder/api/models.py` (or similar, for models)
+- `init.sql` (for table structure reference)
+- `.env` (example, for `DATABASE_URL`)
 ```
 
 ---
 
-**Prompt 2: Database Configuration & Session Management**
+**Prompt 2: Refactor `get_next_project` to Query Database**
+
 ```text
-Objective: Set up SQLAlchemy database engine, session management, and a FastAPI dependency provider.
+Goal: Modify `queue.py` to find the next project to process by querying the database instead of scanning the filesystem.
 
-Instructions:
-1.  Create a new directory `pcb_part_finder/db`.
-2.  Create a new file `pcb_part_finder/db/session.py`.
-3.  In `session.py`:
-    *   Import necessary components from `sqlalchemy` (e.g., `create_engine`) and `sqlalchemy.orm` (e.g., `sessionmaker`, `Session`).
-    *   Import `os` to read environment variables.
-    *   Retrieve the `DATABASE_URL` from environment variables (provide a default or raise an error if not set, matching the `docker-compose.yml` setup: `postgresql://part_finder:part_finder@db:5432/part_finder`).
-    *   Create the SQLAlchemy engine using `create_engine` with the `DATABASE_URL`.
-    *   Create a `SessionLocal` factory using `sessionmaker`, bound to the engine, with `autocommit=False` and `autoflush=False`.
-    *   Define a FastAPI dependency function `get_db()`:
-        *   It should create a database session using `SessionLocal()`.
-        *   It should `yield` the session.
-        *   It must ensure the session is closed afterwards using a `finally` block (`db.close()`).
+Task:
+1.  Import necessary components from `core.database` (e.g., `SessionLocal`, models like `Project`) into `pcb_part_finder/core/queue.py`.
+2.  Rewrite the `get_next_project()` function in `queue.py`.
+3.  Inside `get_next_project()`, acquire a database session (e.g., using `SessionLocal()`).
+4.  Query the `projects` table for one project where the `status` column is equal to 'queued'. Order the results by `created_at` ascending and take the first result (`.first()`).
+5.  If a project is found, return its `project_id`.
+6.  If no project is found, return `None`.
+7.  Ensure the database session is closed properly (e.g., using a `try...finally` block or context manager if not handled by a dependency injector).
+8.  Remove the old filesystem scanning logic (using `Path`, `iterdir`, `sorted`) from `get_next_project`.
+9.  Write unit tests for `get_next_project` using `unittest.mock` to patch the database session/query and verify:
+    - It returns a `project_id` when the mock query returns a project object.
+    - It returns `None` when the mock query returns `None`.
+    - It queries for the correct status ('queued') and orders by `created_at`.
 
-Context: This sets up the core connection to the database and provides a standard way (`get_db` dependency) to inject database sessions into our FastAPI path operation functions, ensuring proper session lifecycle management.
+Context Files:
+- `pcb_part_finder/core/queue.py`
+- `pcb_part_finder/core/database.py` (created in Prompt 1)
+- `pcb_part_finder/api/models.py` (or shared models file)
 ```
 
 ---
 
-**Prompt 3: Define Core SQLAlchemy Models**
+**Prompt 3: Update Project Status to 'Processing'**
+
 ```text
-Objective: Define SQLAlchemy ORM models for the `projects` and `bom_items` tables based on `init.sql`.
+Goal: When `queue.py` successfully finds a project ID, update its status to 'processing' and set the `start_time` in the database before attempting to process it.
 
-Instructions:
-1.  Create a new file `pcb_part_finder/db/models.py`.
-2.  In `models.py`:
-    *   Import necessary components from `sqlalchemy` (e.g., `Column`, `Integer`, `String`, `Text`, `TIMESTAMP`, `ForeignKey`) and `sqlalchemy.orm` (e.g., `relationship`, `declarative_base`).
-    *   Import `datetime`.
-    *   Create a `Base = declarative_base()`.
-    *   Define the `Project` class inheriting from `Base`:
-        *   Set `__tablename__ = 'projects'`.
-        *   Define columns matching `init.sql`: `project_id` (String, primary_key=True), `name` (String, nullable=True), `description` (Text, nullable=True), `email` (String, nullable=True), `created_at` (TIMESTAMP, default=datetime.datetime.utcnow), `status` (String), `start_time` (TIMESTAMP, nullable=True), `end_time` (TIMESTAMP, nullable=True).
-        *   Add a relationship to `BomItem`: `bom_items = relationship("BomItem", back_populates="project", cascade="all, delete-orphan")`.
-    *   Define the `BomItem` class inheriting from `Base`:
-        *   Set `__tablename__ = 'bom_items'`.
-        *   Define columns matching `init.sql`: `bom_item_id` (Integer, primary_key=True), `project_id` (String, ForeignKey('projects.project_id')), `quantity` (Integer), `description` (Text), `package` (String), `notes` (Text, nullable=True), `created_at` (TIMESTAMP, default=datetime.datetime.utcnow).
-        *   Add a relationship back to `Project`: `project = relationship("Project", back_populates="bom_items")`.
+Task:
+1.  In the main `process_queue()` loop within `pcb_part_finder/core/queue.py`, immediately after `project_name = get_next_project()` returns a valid project ID (i.e., not `None`):
+    a. Acquire a new database session.
+    b. Query the `projects` table to fetch the project object corresponding to `project_name` (which is the `project_id`).
+    c. If the project is found:
+        i. Set its `status` attribute to 'processing'.
+        ii. Set its `start_time` attribute to `datetime.now()`.
+        iii. Commit the session.
+        iv. Log an info message indicating the project is now being processed.
+    d. If the project is *not* found (edge case, shouldn't happen if `get_next_project` worked but good to handle), log an error and continue the loop.
+    e. Ensure the session is closed properly.
+2.  Keep the rest of the loop structure (the `try...except` block for actual processing) for now, but ensure the status update happens *before* entering the main processing logic.
+3.  Remove the `validate_project_files` function and its call, as file validation is no longer relevant.
+4.  Remove the filesystem path setup code (`queue_path = ...`, `finished_path = ...`).
+5.  Write/update unit tests for the `process_queue` loop logic, mocking `get_next_project` and the database session/queries/commits. Verify:
+    - When `get_next_project` returns an ID, a DB query is made to fetch the project.
+    - The project's status and start_time are updated, and the session is committed.
+    - When `get_next_project` returns `None`, no update attempt is made.
 
-Context: These models provide the Python object mapping to our database tables, allowing SQLAlchemy to translate between Python objects and database rows. The relationships define how projects and their BOM items are linked.
+Context Files:
+- `pcb_part_finder/core/queue.py`
+- `pcb_part_finder/core/database.py`
+- `pcb_part_finder/api/models.py` (or shared models file)
 ```
 
 ---
 
-**Prompt 4: Implement Core CRUD Functions**
+**Prompt 4: Define and Call New Core Processing Function**
+
 ```text
-Objective: Create basic Create and Read functions for the `Project` and `BomItem` models.
+Goal: Define a new function signature for the core project processing logic that accepts a `project_id` and a DB session. Modify `queue.py` to call this new function instead of manipulating `sys.argv`.
 
-Instructions:
-1.  Create a new file `pcb_part_finder/db/crud.py`.
-2.  In `crud.py`:
-    *   Import `Session` from `sqlalchemy.orm`.
-    *   Import the `Project`, `BomItem` models from `.models`.
-    *   Import the Pydantic `InputBOM`, `BOMComponent` schemas from `..schemas`. (We'll need `InputBOM` in the next step's refactor, but import related schemas here).
-    *   Define `create_project(db: Session, project_id: str, description: str | None, status: str) -> Project`:
-        *   Creates a `Project` model instance.
-        *   Adds it to the session (`db.add()`).
-        *   Commits the session (`db.commit()`).
-        *   Refreshes the instance to get DB-generated values (`db.refresh()`).
-        *   Returns the created `Project` instance.
-    *   Define `create_bom_item(db: Session, item: BOMComponent, project_id: str) -> BomItem`:
-        *   Creates a `BomItem` model instance from the Pydantic `item` data and `project_id`.
-        *   Adds it to the session.
-        *   Returns the created `BomItem` instance (Note: commit is usually done after adding all items for a project).
-    *   Define `get_project_by_id(db: Session, project_id: str) -> Project | None`:
-        *   Queries the database for a `Project` with the matching `project_id`.
-        *   Returns the first result or `None`.
+Task:
+1.  Create a new file `pcb_part_finder/core/processor.py`.
+2.  In `processor.py`, define a function `process_project_from_db(project_id: str, db: Session) -> bool:`. Import `Session` from `sqlalchemy.orm`.
+3.  For now, implement `process_project_from_db` as a stub:
+    - Log an INFO message indicating it's processing `project_id`.
+    - Include comments outlining the future steps: Load data, call LLM handler, call Mouser API, write results.
+    - Return `True` (simulating successful processing for now).
+4.  In `pcb_part_finder/core/queue.py`:
+    - Import `process_project_from_db` from `core.processor`.
+    - Import `SessionLocal` from `core.database`.
+    - Inside the main `try` block of the `process_queue` loop (after the status has been updated to 'processing'), acquire a DB session.
+    - Call `success = process_project_from_db(project_id=project_name, db=session)`.
+    - Remove the commented-out `process_project()` call and the `sys.argv` manipulation code.
+    - Store the boolean result (`success`) for later use in status updates (Prompt 3.1).
+    - Ensure the session is closed properly after the call.
+5.  Update unit tests for `process_queue`:
+    - Mock `process_project_from_db`.
+    - Verify it's called with the correct `project_id` and a database session object when a project is being processed.
 
-Context: This file will house all database interaction logic, keeping it separate from the API endpoint handlers. These initial functions cover creating new projects and their associated BOM items, and retrieving a specific project.
+Context Files:
+- `pcb_part_finder/core/queue.py`
+- `pcb_part_finder/core/processor.py` (new)
+- `pcb_part_finder/core/database.py`
+- `pcb_part_finder/api/models.py` (or shared models file)
 ```
 
 ---
 
-**Prompt 5: Refactor `POST /project` Endpoint**
+**Prompt 5: Implement Data Loading from Database**
+
 ```text
-Objective: Modify the `create_project` endpoint in `api/projects.py` to use the database CRUD functions instead of CSV writing.
+Goal: Implement the logic within `core.processor` (or refactor `core.data_loader`) to fetch project details and BOM items from the database using the `project_id`.
 
-Instructions:
-1.  Open `pcb_part_finder/api/projects.py`.
-2.  Import `Session` from `sqlalchemy.orm` and `Depends` from `fastapi`.
-3.  Import the `get_db` dependency from `..db.session`.
-4.  Import the CRUD functions `create_project`, `create_bom_item` from `..db.crud`.
-5.  Import the `Project` model from `..db.models` (optional, maybe not needed directly in endpoint).
-6.  Modify the `create_project` async function:
-    *   Add `db: Session = Depends(get_db)` as a parameter.
-    *   Remove the `generate_project_id` function call and associated imports (`string`, `random`, `datetime` if only used there). Instead, generate a unique ID (e.g., using `uuid.uuid4()`). Import `uuid`.
-    *   Remove the file/directory creation logic (`QUEUE_DIR`, `project_dir.mkdir`, `Path`).
-    *   Remove the `bom_to_dataframe` function call and the function definition itself, along with the `pandas` import if no longer needed.
-    *   Remove the `df.to_csv(...)` call.
-    *   Remove the `project_details.txt` writing logic.
-    *   **Instead:**
-        *   Generate a `project_id` (e.g., `str(uuid.uuid4())`).
-        *   Call `crud.create_project(db=db, project_id=project_id, description=bom.project_description, status='queued')`.
-        *   Iterate through `bom.components`:
-            *   For each `comp`, call `crud.create_bom_item(db=db, item=comp, project_id=project_id)`.
-        *   After the loop, commit the transaction: `db.commit()`. You might need to catch potential exceptions during item creation and handle rollbacks (`db.rollback()`).
-        *   Refresh the created project object if needed (e.g., `db.refresh(db_project)`) - though not strictly necessary if just returning the ID.
-    *   Keep the truncation logic as is.
-    *   Return the `project_id` and `truncation_info`.
-    *   Remove unused imports like `Path`, `shutil`, `pd`, `string`, `random`.
+Task:
+1.  Refactor or add functions in `pcb_part_finder/core/data_loader.py`. Alternatively, implement directly in `pcb_part_finder/core/processor.py` initially. Let's assume refactoring `data_loader.py`.
+2.  Create a function `load_project_data_from_db(project_id: str, db: Session) -> Tuple[Project | None, List[BomItem]]`:
+    - Takes `project_id` and `db` session as input.
+    - Queries the database to fetch the `Project` object matching `project_id`.
+    - Queries the database to fetch all `BomItem` objects where `project_id` matches the input `project_id`.
+    - Returns the fetched `Project` object (or `None` if not found) and the list of `BomItem` objects.
+3.  In `pcb_part_finder/core/processor.py`, modify `process_project_from_db`:
+    - Import `load_project_data_from_db` from `core.data_loader`.
+    - Call `project, bom_items = load_project_data_from_db(project_id, db)`.
+    - Add error handling: If `project` is `None`, log an error and return `False`.
+    - Log the loaded project name and the number of BOM items found.
+    - Pass the `project` details (like description/notes) and `bom_items` list to subsequent processing steps (which are still stubs or need implementation).
+4.  Remove any old CSV-reading functions from `data_loader.py` if they are no longer needed anywhere.
+5.  Write unit tests for `load_project_data_from_db`:
+    - Mock the DB session and queries.
+    - Verify it correctly fetches and returns a `Project` and a list of `BomItem`s based on mock data.
+    - Verify it returns `(None, [])` if the project query returns nothing.
+6.  Update unit tests for `process_project_from_db` to mock `load_project_data_from_db` and verify it's called correctly.
 
-Context: This is the first major refactor step, switching the creation path from filesystem operations to database persistence using the newly created DB layer. It introduces the `get_db` dependency injection pattern.
+Context Files:
+- `pcb_part_finder/core/processor.py`
+- `pcb_part_finder/core/data_loader.py`
+- `pcb_part_finder/core/database.py`
+- `pcb_part_finder/api/models.py` (or shared models file)
 ```
 
 ---
 
-**Prompt 6: Implement Queued Read CRUD Functions**
+**Prompt 6: Adapt LLM Handler for Database Objects**
+
 ```text
-Objective: Add CRUD functions to retrieve BOM items for a project, get project status, and get queue information.
+Goal: Ensure the `llm_handler.py` can process `BomItem` objects loaded from the database, format them as needed for the LLM (potentially using an in-memory CSV-like string format), and parse the results back without using filesystem I/O.
 
-Instructions:
-1.  Open `pcb_part_finder/db/crud.py`.
-2.  Import `List` from `typing` and potentially `func` from `sqlalchemy` for count operations.
-3.  Define `get_bom_items_for_project(db: Session, project_id: str) -> List[BomItem]`:
-    *   Queries the `BomItem` table, filtering by `project_id`.
-    *   Returns all matching `BomItem` instances.
-4.  Define `get_project_status(db: Session, project_id: str) -> str | None`:
-    *   Queries the `Project` table for the specific `project_id`.
-    *   Returns the `status` column value if the project exists, otherwise `None`.
-5.  Define `get_queue_info(db: Session, project_id: str) -> tuple[int, int]`:
-    *   Query 1: Count all projects where `status == 'queued'`. This is the `total_in_queue`.
-    *   Query 2: Count all projects where `status == 'queued'` AND `created_at <= (SELECT created_at FROM projects WHERE project_id = :project_id)`. This gives the `position`. Use subqueries or fetch the project's `created_at` first.
-    *   Return `(position, total_in_queue)`. Handle the case where the project itself isn't found or isn't queued.
-6.  Define `count_queued_projects(db: Session) -> int`:
-    *   Queries the `Project` table and counts rows where `status == 'queued'`.
-    *   Returns the count.
+Task:
+1.  Review `pcb_part_finder/core/llm_handler.py`. Identify the main function(s) responsible for interacting with the LLM (e.g., `format_bom_for_llm`, `parse_llm_response`, `process_bom_with_llm`).
+2.  Modify these functions to accept a list of `BomItem` objects (or relevant data derived from them) instead of reading from a file path or expecting a pre-formatted string from a file.
+3.  If the LLM interaction relies on a specific string format (like CSV):
+    - Implement the logic *within* the handler function to format the input `BomItem` data into this string format *in memory* (e.g., using `io.StringIO` and `csv.writer` if helpful, or simple string concatenation).
+    - Ensure the LLM response parsing logic takes the LLM's string output and converts it back into structured data (e.g., dictionaries or updated `BomItem` fields).
+4.  Remove any code within `llm_handler.py` that performs file read or write operations.
+5.  In `pcb_part_finder/core/processor.py`, update the call to the LLM handler within `process_project_from_db`. Pass the loaded `bom_items` list (or relevant parts) to it. Capture the structured results.
+6.  Write/update unit tests for the relevant functions in `llm_handler.py`:
+    - Test the in-memory formatting logic with sample `BomItem` data.
+    - Test the response parsing logic with sample LLM string outputs.
+    - Ensure no file I/O is attempted.
 
-Context: These functions provide the necessary database operations to retrieve data for projects that are still in the 'queued' state and to get overall queue statistics.
+Context Files:
+- `pcb_part_finder/core/processor.py`
+- `pcb_part_finder/core/llm_handler.py`
+- `pcb_part_finder/api/models.py` (specifically `BomItem`)
 ```
 
 ---
 
-**Prompt 7: Refactor `GET /project/{project_id}` (Queued Status)**
+**Prompt 7: Implement Data Writing to Database**
+
 ```text
-Objective: Modify the `get_project` endpoint to handle 'queued' projects by fetching data from the database.
+Goal: Implement the logic to save the processing results (e.g., matched components from Mouser/LLM processing) back to the database, associating them with the original BOM items.
 
-Instructions:
-1.  Open `pcb_part_finder/api/projects.py`.
-2.  Import `Depends` from `fastapi`, `Session` from `sqlalchemy.orm`, and the new CRUD functions (`get_project_by_id`, `get_bom_items_for_project`, `get_queue_info`) from `..db.crud`. Also import `InputBOM`, `BOMComponent` from `..schemas`.
-3.  Import `get_db` from `..db.session`.
-4.  Modify the `get_project` async function:
-    *   Add `db: Session = Depends(get_db)` as a parameter.
-    *   Remove the filesystem path checking (`QUEUE_DIR`, `FINISHED_DIR`, `queue_path.exists()`, `finished_path.exists()`).
-    *   Remove the queue position calculation based on directory listing.
-    *   Remove the `pd.read_csv` call for `initial_bom.csv`.
-    *   Remove the `read_project_details` call and the function definition.
-    *   Remove the `dataframe_to_bom` call and the function definition.
-    *   **Instead:**
-        *   Call `db_project = crud.get_project_by_id(db=db, project_id=project_id)`.
-        *   If `db_project` is None, raise `HTTPException(status_code=404, detail="Project not found")`.
-        *   Check `db_project.status`:
-            *   **If `'queued'`:**
-                *   Call `db_items = crud.get_bom_items_for_project(db=db, project_id=project_id)`.
-                *   Call `position, total_in_queue = crud.get_queue_info(db=db, project_id=project_id)`.
-                *   Reconstruct the `InputBOM` Pydantic model:
-                    *   Create a list of `BOMComponent` objects by iterating through `db_items` and mapping the database model fields (qty, description, possible_mpn, package, notes) back to the Pydantic model fields. Remember `possible_mpn` and `notes` might be None in the DB, matching the Optional Pydantic fields. Package might need `str()` conversion if stored differently.
-                    *   Instantiate `InputBOM(components=..., project_description=db_project.description)`.
-                *   Return the dictionary structure for the 'queued' response, using the fetched data: `{"status": "queued", "position": position, "total_in_queue": total_in_queue, "bom": bom.model_dump()}`.
-            *   **Else (handle 'finished' later):** For now, if status is not 'queued', continue to the original 'finished' block logic (which still uses CSVs) or raise a 501 Not Implemented error temporarily. We will replace this in a later step.
-    *   Ensure the 404 HTTPException is raised at the end if neither 'queued' nor 'finished' logic handles the project (this might change based on how the 'finished' part is integrated).
+Task:
+1.  Refactor or add functions in `pcb_part_finder/core/output_writer.py`. Alternatively, implement directly in `pcb_part_finder/core/processor.py`. Let's assume refactoring `output_writer.py`.
+2.  Define database models if needed, e.g., ensure `BomItemMatch` and `Component` models exist and are accessible (they should be from `api/models.py`).
+3.  Create a function `save_bom_results_to_db(project_id: str, bom_items_with_matches: List[Dict], db: Session)` (adjust input structure as needed based on preceding steps like LLM/Mouser output). This function should:
+    - Iterate through the results.
+    - For each result/match associated with an original `BomItem`:
+        - Potentially find or create a `Component` record for the matched part (using Mouser PN, etc.). Handle potential uniqueness constraints.
+        - Create a `BomItemMatch` record linking the `bom_item_id` (from the original `BomItem`) to the `component_id` of the matched component. Store relevant match details (status, confidence score, etc.) in this record.
+        - Optionally, update the original `BomItem` record itself (e.g., setting a 'processed' flag or storing a primary match ID).
+    - Commit the changes within the passed session `db`.
+4.  In `pcb_part_finder/core/processor.py`, within `process_project_from_db`, after the LLM/Mouser processing steps yield results:
+    - Call `save_bom_results_to_db`, passing the `project_id`, the processed results, and the `db` session.
+5.  Remove any old CSV/JSON writing functions from `output_writer.py`.
+6.  Write unit tests for `save_bom_results_to_db`:
+    - Mock the DB session, queries (e.g., for existing components), and commits.
+    - Verify that appropriate `Component` and `BomItemMatch` records are created/updated based on sample input results.
+    - Verify that updates to `BomItem` happen if designed.
 
-Context: This step refactors the read path for *queued* projects, replacing filesystem lookups and CSV parsing with database queries via the CRUD layer. It keeps the Pydantic schemas for the response consistent.
+Context Files:
+- `pcb_part_finder/core/processor.py`
+- `pcb_part_finder/core/output_writer.py`
+- `pcb_part_finder/core/database.py`
+- `pcb_part_finder/api/models.py` (or shared models file, especially `BomItem`, `Component`, `BomItemMatch`)
+- `init.sql` (for table structure reference)
 ```
 
 ---
 
-**Prompt 8: Refactor `GET /project/queue/length` Endpoint**
+**Prompt 8: Update Final Project Status (Complete/Failed)**
+
 ```text
-Objective: Modify the `get_queue_length` endpoint to use the database CRUD function.
+Goal: Update the project's status in the database to 'complete' or 'failed' and set the `end_time` in `queue.py` based on the outcome of the core processing function.
 
-Instructions:
-1.  Open `pcb_part_finder/api/projects.py`.
-2.  Import `Depends` from `fastapi`, `Session` from `sqlalchemy.orm`, the CRUD function `count_queued_projects` from `..db.crud`, and `get_db` from `..db.session`.
-3.  Modify the `get_queue_length` async function:
-    *   Add `db: Session = Depends(get_db)` as a parameter.
-    *   Remove the directory listing logic (`QUEUE_DIR`, `iterdir`, list comprehension).
-    *   **Instead:**
-        *   Call `count = crud.count_queued_projects(db=db)`.
-        *   Return `{"queue_length": count}`.
-    *   Remove unused imports like `Path`.
+Task:
+1.  In `pcb_part_finder/core/queue.py`, locate the `try...except...finally` block within the `process_queue` loop that calls `process_project_from_db`.
+2.  Modify the logic *after* the call to `process_project_from_db`:
+    a. Determine the final status: `'complete'` if the function returned `True` (or didn't raise an exception), `'failed'` if it returned `False` or an exception was caught.
+    b. Acquire a database session.
+    c. Query for the project object using `project_name` (the `project_id`).
+    d. If found, update its `status` to the determined final status and set `end_time` to `datetime.now()`.
+    e. Commit the session.
+    f. Log the final status (completion or failure).
+    g. Ensure the session is closed properly.
+3.  Make sure the `Exception` handling logs the error appropriately.
+4.  Remove the old `create_results_file` function and its call.
+5.  Remove the old filesystem moving logic (`shutil.move`, `finished_path.mkdir`, `queue_path.rmdir`).
+6.  Write/update unit tests for the `process_queue` loop:
+    - Mock `get_next_project`, the DB session/queries/commits, and `process_project_from_db`.
+    - Test the scenario where `process_project_from_db` returns `True`: Verify the status is updated to 'complete' and `end_time` is set.
+    - Test the scenario where `process_project_from_db` returns `False`: Verify the status is updated to 'failed' and `end_time` is set.
+    - Test the scenario where `process_project_from_db` raises an exception: Verify the status is updated to 'failed', `end_time` is set, and the exception is logged.
 
-Context: This replaces the filesystem-based queue length calculation with a much more efficient database query.
+Context Files:
+- `pcb_part_finder/core/queue.py`
+- `pcb_part_finder/core/processor.py` (specifically its return value/exceptions)
+- `pcb_part_finder/core/database.py`
+- `pcb_part_finder/api/models.py` (or shared models file)
 ```
 
 ---
 
-**Prompt 9: Define Matching SQLAlchemy Models**
+**Prompt 9: Final Cleanup and Integration Test Guidance**
+
 ```text
-Objective: Define SQLAlchemy ORM models for the `components` and `bom_item_matches` tables based on `init.sql`.
+Goal: Perform final code cleanup, review, and prepare for integration testing.
 
-Instructions:
-1.  Open `pcb_part_finder/db/models.py`.
-2.  Import `DECIMAL`, `ForeignKeyConstraint`, `Index` if needed (though relationships handle FKs usually).
-3.  Define the `Component` class inheriting from `Base`:
-    *   Set `__tablename__ = 'components'`.
-    *   Define columns matching `init.sql`: `component_id` (Integer, primary_key=True), `mouser_part_number` (String, unique=True, index=True), `manufacturer_part_number` (String, index=True, nullable=True), `manufacturer_name` (String, nullable=True), `description` (Text, nullable=True), `datasheet_url` (Text, nullable=True), `package` (String, nullable=True), `price` (DECIMAL(10, 2), nullable=True), `availability` (String, nullable=True), `last_updated` (TIMESTAMP, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow).
-    *   Add relationship: `matches = relationship("BomItemMatch", back_populates="component")`.
-4.  Define the `BomItemMatch` class inheriting from `Base`:
-    *   Set `__tablename__ = 'bom_item_matches'`.
-    *   Define columns matching `init.sql`: `match_id` (Integer, primary_key=True), `bom_item_id` (Integer, ForeignKey('bom_items.bom_item_id'), index=True), `component_id` (Integer, ForeignKey('components.component_id'), index=True, nullable=True), `match_status` (String), `matched_at` (TIMESTAMP, default=datetime.datetime.utcnow).
-    *   Add relationships:
-        *   `bom_item = relationship("BomItem")` (Might need `back_populates` on `BomItem` if a direct link is desired there).
-        *   `component = relationship("Component", back_populates="matches")`.
+Task:
+1.  Review all modified files (`queue.py`, `processor.py`, `data_loader.py`, `output_writer.py`, `llm_handler.py`, `database.py`) for any remaining filesystem operations related to the old queue/CSV flow (e.g., `Path`, `shutil`, `os.path`, direct `open()` calls for project data CSVs/JSON). Remove any commented-out code related to the old flow.
+2.  Ensure all necessary imports are present and unused imports are removed. Run a linter (like flake8 or ruff) and address any issues.
+3.  Review logging messages across the modules to ensure they provide clear information about the queue polling, project processing stages, database interactions, and errors.
+4.  Review the `Dockerfile.api`. Since the queue worker (`python -m pcb_part_finder queue`) no longer relies on the `projects/queue` and `projects/finished` directories for its core operation, consider if the `COPY projects/ projects/` line and the `RUN mkdir -p /app/projects/queue /app/projects/finished` lines are still necessary. *Decision: Keep them for now if the API might still use them for upload/download staging, but note they are not needed by `queue.py` itself.*
+5.  Prepare instructions for an integration test:
+    - Ensure the database is running and the schema (`init.sql`) is applied.
+    - Ensure necessary environment variables (`DATABASE_URL`, API keys for LLM/Mouser) are set.
+    - Start the API server (if needed for project creation).
+    - Create a test project using the API, ensuring its initial status is 'queued' and it has some BOM items. Note the `project_id`.
+    - Run the queue worker: `python -m pcb_part_finder.core.queue`
+    - Monitor the logs of the queue worker.
+    - Check the database: Verify the project's status progresses ('queued' -> 'processing' -> 'complete'/'failed'). Verify `start_time` and `end_time` are populated. Verify `bom_item_matches` and `components` tables contain the expected results.
 
-Context: These models represent the results of the part matching process: the details of the identified components (`Component`) and the link between an original BOM item and a matched component (`BomItemMatch`).
+Context Files:
+- All modified Python files in `pcb_part_finder/core/`
+- `Dockerfile.api`
+- `init.sql`
 ```
-
----
-
-**Prompt 10: Implement Matching CRUD Functions**
-```text
-Objective: Create CRUD functions for handling `Component` and `BomItemMatch` data, retrieving finished project data, and updating project status.
-
-Instructions:
-1.  Open `pcb_part_finder/db/crud.py`.
-2.  Import the new models `Component`, `BomItemMatch` from `.models`.
-3.  Import `select`, `update` statements from `sqlalchemy` if needed for more complex queries/updates.
-4.  Define `get_or_create_component(db: Session, component_data: dict) -> Component`:
-    *   Tries to find a `Component` based on `mouser_part_number` from `component_data`.
-    *   If found, update its fields (price, availability, description, etc., and `last_updated`) from `component_data`.
-    *   If not found, create a new `Component` instance with `component_data`.
-    *   Add/commit/refresh as needed. Return the found or created `Component`. (This logic is crucial for the background worker).
-5.  Define `create_bom_item_match(db: Session, bom_item_id: int, component_id: int | None, match_status: str) -> BomItemMatch`:
-    *   Creates a `BomItemMatch` instance.
-    *   Adds it to the session. Returns the instance. (Commit often handled later).
-6.  Define `get_finished_project_data(db: Session, project_id: str) -> List[tuple[BomItem, BomItemMatch | None, Component | None]]`:
-    *   Perform a query that joins `BomItem` LEFT OUTER JOIN `BomItemMatch` ON `BomItem.bom_item_id == BomItemMatch.bom_item_id` LEFT OUTER JOIN `Component` ON `BomItemMatch.component_id == Component.component_id`.
-    *   Filter the query where `BomItem.project_id == project_id`.
-    *   Return the list of resulting tuples `(BomItem, BomItemMatch, Component)`. Handle potential `None` values from the outer joins.
-7.  Define `update_project_status(db: Session, project_id: str, new_status: str, start_time: datetime | None = None, end_time: datetime | None = None) -> bool`:
-    *   Find the `Project` by `project_id`.
-    *   If found, update its `status` field to `new_status`. Update `start_time` and `end_time` if provided.
-    *   Commit the change. Return `True`.
-    *   If not found, return `False`.
-
-Context: These functions support the background worker's process of storing matched component data and associating it with BOM items. They also provide the query needed to retrieve the complete data for a finished project and allow status updates (including marking for deletion/cancellation).
-```
-
----
-
-**Prompt 11: Refactor `GET /project/{project_id}` (Finished Status)**
-```text
-Objective: Enhance the `get_project` endpoint to handle 'finished' projects by fetching enriched data from the database.
-
-Instructions:
-1.  Open `pcb_part_finder/api/projects.py`.
-2.  Import the new CRUD function `get_finished_project_data` from `..db.crud`.
-3.  Import the Pydantic schemas `MatchedBOM`, `MatchedComponent` from `..schemas`.
-4.  Import `datetime` from `datetime`.
-5.  Modify the `get_project` async function inside the `else` block (or add an `elif db_project.status == 'finished':`) following the 'queued' check:
-    *   Remove the `finished_path.exists()` check and related `Path` logic.
-    *   Remove the `pd.read_csv('bom_matched.csv')` call.
-    *   Remove the manual iteration over DataFrame rows (`df.iterrows()`).
-    *   Remove the `read_project_details` call for reading `results.json`.
-    *   **Instead:**
-        *   Call `results_data = crud.get_finished_project_data(db=db, project_id=project_id)`.
-        *   Create an empty list `matched_components = []`.
-        *   Iterate through `results_data` (which contains tuples like `(db_bom_item, db_match, db_component)`):
-            *   Map data from `db_bom_item` (qty, description, possible_mpn, package, notes) to a dictionary.
-            *   If `db_match` and `db_component` exist (successful match):
-                *   Add fields from `db_component` (mouser_part_number, manufacturer_part_number, manufacturer_name, mouser_description, datasheet_url, price, availability) to the dictionary. Handle potential `None` values and type conversions (e.g., `Decimal` to `float`).
-                *   Add `match_status` from `db_match` to the dictionary.
-            *   Else (no match found):
-                *   Set the corresponding fields (mouser_part_number, etc.) to `None`.
-                *   Set `match_status` (e.g., from `db_match.match_status` if it exists even without a component, or deduce as 'no_match').
-            *   Instantiate `MatchedComponent(**component_dict)` and append to `matched_components`.
-        *   Reconstruct the `MatchedBOM` Pydantic model:
-            *   `match_date = db_project.end_time.isoformat() if db_project.end_time else datetime.now().isoformat()` (use end time from project record).
-            *   `match_status = db_project.status` (or a specific status field if you add one).
-            *   Instantiate `MatchedBOM(components=matched_components, project_description=db_project.description, match_date=match_date, match_status=match_status)`.
-        *   Prepare the `results` dictionary (e.g., `{"start_time": db_project.start_time.isoformat(), "end_time": match_date, "status": match_status}`) using data from `db_project`.
-        *   Return the dictionary structure for the 'finished' response: `{"status": "finished", "bom": matched_bom.model_dump(), "results": results}`.
-    *   Modify the final `raise HTTPException(status_code=404, ...)` to only trigger if the status is neither 'queued' nor 'finished' (or handle other statuses like 'processing', 'error' explicitly if desired).
-
-Context: This completes the refactoring of the main project retrieval endpoint, enabling it to serve both queued and finished projects entirely from the database, maintaining the original response structure.
-```
-
----
-
-**Prompt 12: Refactor `DELETE /project/{project_id}` Endpoint**
-```text
-Objective: Modify the project deletion endpoint to update the project status in the database instead of removing filesystem artifacts.
-
-Instructions:
-1.  Open `pcb_part_finder/api/projects.py`.
-2.  Import the CRUD function `update_project_status` from `..db.crud`. (Ensure `get_project_by_id` is also imported if not already).
-3.  Modify the `delete_project` async function:
-    *   Add `db: Session = Depends(get_db)` as a parameter.
-    *   Remove the `queue_path` check (`QUEUE_DIR`, `Path`, `queue_path.exists()`).
-    *   Remove the `shutil.rmtree(queue_path)` call.
-    *   **Instead:**
-        *   Call `db_project = crud.get_project_by_id(db=db, project_id=project_id)`.
-        *   If `db_project` is None or `db_project.status != 'queued'`, raise `HTTPException(status_code=404, detail="Project not found in queue or cannot be deleted")`. (Adjust status check logic as needed - maybe allow deletion of 'error' states too?).
-        *   Call `updated = crud.update_project_status(db=db, project_id=project_id, new_status='cancelled')`. You could use 'deleted' but 'cancelled' might be clearer.
-        *   If `updated` is `False` (shouldn't happen if project was found), raise an internal server error.
-        *   Commit the transaction `db.commit()`.
-        *   Return `{"status": "cancelled"}` (or "deleted" matching the new status).
-    *   Remove unused imports like `Path`, `shutil`.
-
-Context: This changes the delete operation from a physical file deletion to a logical status update in the database, preserving project history while achieving the user's intent.
-```
-
----
-
-**Prompt 13: Prerequisite CRUD for Background Worker**
-```text
-Objective: Ensure CRUD functions exist that the (separate) background worker process will need to interact with the database state.
-
-Instructions:
-1.  Review `pcb_part_finder/db/crud.py`.
-2.  Ensure the following functions (or equivalents) exist and are robust:
-    *   `find_next_queued_project(db: Session) -> Project | None`: Queries for one project where `status == 'queued'`, ordered by `created_at`, and returns it. (Could use `LIMIT 1`).
-    *   `update_project_status(db: Session, project_id: str, new_status: str, start_time: datetime | None = None, end_time: datetime | None = None) -> bool`: Already created, ensure it can handle setting status to 'processing', 'finished', 'error', and updating timestamps.
-    *   `get_bom_items_for_project(db: Session, project_id: str) -> List[BomItem]`: Already created.
-    *   `get_or_create_component(db: Session, component_data: dict) -> Component`: Already created. Needs careful implementation regarding updates vs. creates.
-    *   `create_bom_item_match(db: Session, bom_item_id: int, component_id: int | None, match_status: str) -> BomItemMatch`: Already created. Ensure the worker commits transactions appropriately after processing a project.
-
-Context: While we are not refactoring the worker itself with these prompts, the API's database layer must provide the necessary interface for the worker to function correctly in the new DB-centric architecture. This step verifies those prerequisites. No code changes are likely needed if previous steps were done correctly, but it's a crucial verification point.
-```
-
----
-
-**Prompt 14: Final Code Cleanup (API Service)**
-```text
-Objective: Remove all obsolete filesystem and CSV-related code from the API service.
-
-Instructions:
-1.  Thoroughly review all files within `pcb_part_finder/api/` and `pcb_part_finder/db/`.
-2.  Delete any remaining helper functions related to CSVs or DataFrames (`bom_to_dataframe`, `dataframe_to_bom`, `read_project_details`).
-3.  Remove unused constants like `PROJECTS_DIR`, `QUEUE_DIR`, `FINISHED_DIR`.
-4.  Remove any remaining unused imports, especially `pandas`, `pathlib`, `shutil`, `csv`, `os` (if only used for paths), `string`, `random` (if `generate_project_id` was fully replaced).
-5.  Ensure Pydantic schemas in `pcb_part_finder/api/schemas.py` are still accurate for the API contract, but do not contain database-specific details (like foreign key IDs) unless intended to be part of the API response.
-
-Context: This step cleans up the codebase, removing dead code related to the old persistence method, making the project cleaner and easier to maintain.
-```
-
----
-
-**Prompt 15: Configuration Cleanup (Docker)**
-```text
-Objective: Remove the unnecessary project volume mount from the API service definition in `docker-compose.yml`.
-
-Instructions:
-1.  Open `docker-compose.yml`.
-2.  Locate the `api` service definition.
-3.  In the `volumes` section for the `api` service, remove the line mounting the local `./projects` directory (e.g., `- ./projects:/app/projects`).
-4.  Leave the `./cache:/app/cache` volume if it's being used for other purposes.
-5.  The `web` service might also have a `./projects` mount – remove it if it's also no longer needed there.
-
-Context: Since project data is now stored exclusively in the database (`db` service volume `postgres_data`), the API and Web services no longer need direct access to the host's `./projects` directory for reading/writing BOM data. This simplifies the configuration.
-```
-
----
-
-This sequence of prompts provides a granular, step-by-step guide for an LLM to perform the refactoring, ensuring each change builds upon the last and maintains a working state logically and integrates with the previous steps.

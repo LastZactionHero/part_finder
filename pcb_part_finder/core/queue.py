@@ -9,7 +9,7 @@ import sys
 from datetime import datetime
 from typing import Dict, Any
 from pathlib import Path
-from pcb_part_finder.main import main as process_project
+# from pcb_part_finder.main import main as process_project # Commented out for refactoring
 
 # Configure logging to stdout for Docker compatibility
 logging.basicConfig(
@@ -109,7 +109,7 @@ def process_queue():
                 ]
                 
                 # Call the main processing function
-                process_project()
+                # process_project() # Commented out for refactoring
                 
                 # Restore original sys.argv
                 sys.argv = original_argv
