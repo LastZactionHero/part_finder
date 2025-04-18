@@ -64,7 +64,6 @@ Task:
 4.  Ensure necessary SQLAlchemy models (e.g., `Project`, `BomItem` from `api.models` or a shared `models.py`) can be imported and are recognized by the engine/session (e.g., via `Base.metadata.create_all(bind=engine)` if necessary, though table creation might be handled elsewhere).
 5.  Add basic configuration loading (e.g., using `python-dotenv`) to load `.env` files if present.
 6.  In `pcb_part_finder/core/__init__.py`, ensure the core modules can access the components defined in `pcb_part_finder.core.database`.
-7.  Write a simple test script or add a temporary check within `queue.py` (under `if __name__ == "__main__":`) that attempts to acquire a DB session using `get_db()` and performs a trivial query (e.g., `session.query(Project).first()`) to verify connectivity. This test part can be removed later.
 
 Context Files:
 - `pcb_part_finder/api/database.py` (or similar, for reference)
@@ -89,10 +88,6 @@ Task:
 6.  If no project is found, return `None`.
 7.  Ensure the database session is closed properly (e.g., using a `try...finally` block or context manager if not handled by a dependency injector).
 8.  Remove the old filesystem scanning logic (using `Path`, `iterdir`, `sorted`) from `get_next_project`.
-9.  Write unit tests for `get_next_project` using `unittest.mock` to patch the database session/query and verify:
-    - It returns a `project_id` when the mock query returns a project object.
-    - It returns `None` when the mock query returns `None`.
-    - It queries for the correct status ('queued') and orders by `created_at`.
 
 Context Files:
 - `pcb_part_finder/core/queue.py`
@@ -121,10 +116,7 @@ Task:
 2.  Keep the rest of the loop structure (the `try...except` block for actual processing) for now, but ensure the status update happens *before* entering the main processing logic.
 3.  Remove the `validate_project_files` function and its call, as file validation is no longer relevant.
 4.  Remove the filesystem path setup code (`queue_path = ...`, `finished_path = ...`).
-5.  Write/update unit tests for the `process_queue` loop logic, mocking `get_next_project` and the database session/queries/commits. Verify:
-    - When `get_next_project` returns an ID, a DB query is made to fetch the project.
-    - The project's status and start_time are updated, and the session is committed.
-    - When `get_next_project` returns `None`, no update attempt is made.
+
 
 Context Files:
 - `pcb_part_finder/core/queue.py`
@@ -154,9 +146,6 @@ Task:
     - Remove the commented-out `process_project()` call and the `sys.argv` manipulation code.
     - Store the boolean result (`success`) for later use in status updates (Prompt 3.1).
     - Ensure the session is closed properly after the call.
-5.  Update unit tests for `process_queue`:
-    - Mock `process_project_from_db`.
-    - Verify it's called with the correct `project_id` and a database session object when a project is being processed.
 
 Context Files:
 - `pcb_part_finder/core/queue.py`
@@ -245,10 +234,7 @@ Task:
 4.  In `pcb_part_finder/core/processor.py`, within `process_project_from_db`, after the LLM/Mouser processing steps yield results:
     - Call `save_bom_results_to_db`, passing the `project_id`, the processed results, and the `db` session.
 5.  Remove any old CSV/JSON writing functions from `output_writer.py`.
-6.  Write unit tests for `save_bom_results_to_db`:
-    - Mock the DB session, queries (e.g., for existing components), and commits.
-    - Verify that appropriate `Component` and `BomItemMatch` records are created/updated based on sample input results.
-    - Verify that updates to `BomItem` happen if designed.
+
 
 Context Files:
 - `pcb_part_finder/core/processor.py`
@@ -278,11 +264,7 @@ Task:
 3.  Make sure the `Exception` handling logs the error appropriately.
 4.  Remove the old `create_results_file` function and its call.
 5.  Remove the old filesystem moving logic (`shutil.move`, `finished_path.mkdir`, `queue_path.rmdir`).
-6.  Write/update unit tests for the `process_queue` loop:
-    - Mock `get_next_project`, the DB session/queries/commits, and `process_project_from_db`.
-    - Test the scenario where `process_project_from_db` returns `True`: Verify the status is updated to 'complete' and `end_time` is set.
-    - Test the scenario where `process_project_from_db` returns `False`: Verify the status is updated to 'failed' and `end_time` is set.
-    - Test the scenario where `process_project_from_db` raises an exception: Verify the status is updated to 'failed', `end_time` is set, and the exception is logged.
+
 
 Context Files:
 - `pcb_part_finder/core/queue.py`
@@ -303,14 +285,7 @@ Task:
 2.  Ensure all necessary imports are present and unused imports are removed. Run a linter (like flake8 or ruff) and address any issues.
 3.  Review logging messages across the modules to ensure they provide clear information about the queue polling, project processing stages, database interactions, and errors.
 4.  Review the `Dockerfile.api`. Since the queue worker (`python -m pcb_part_finder queue`) no longer relies on the `projects/queue` and `projects/finished` directories for its core operation, consider if the `COPY projects/ projects/` line and the `RUN mkdir -p /app/projects/queue /app/projects/finished` lines are still necessary. *Decision: Keep them for now if the API might still use them for upload/download staging, but note they are not needed by `queue.py` itself.*
-5.  Prepare instructions for an integration test:
-    - Ensure the database is running and the schema (`init.sql`) is applied.
-    - Ensure necessary environment variables (`DATABASE_URL`, API keys for LLM/Mouser) are set.
-    - Start the API server (if needed for project creation).
-    - Create a test project using the API, ensuring its initial status is 'queued' and it has some BOM items. Note the `project_id`.
-    - Run the queue worker: `python -m pcb_part_finder.core.queue`
-    - Monitor the logs of the queue worker.
-    - Check the database: Verify the project's status progresses ('queued' -> 'processing' -> 'complete'/'failed'). Verify `start_time` and `end_time` are populated. Verify `bom_item_matches` and `components` tables contain the expected results.
+
 
 Context Files:
 - All modified Python files in `pcb_part_finder/core/`

@@ -2,8 +2,18 @@
 
 import csv
 import os
-from typing import List, Dict, Any
+import logging
+from typing import List, Dict, Any, Tuple, Optional
 from pcb_part_finder.core.llm_handler import get_llm_response
+from sqlalchemy.orm import Session
+from pcb_part_finder.db.models import Project, BomItem
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class DataLoaderError(Exception):
     """Custom exception for data loading errors."""
@@ -119,4 +129,39 @@ def load_input_csv(filepath: str) -> List[Dict[str, Any]]:
     except csv.Error as e:
         raise DataLoaderError(f"Error parsing CSV: {e}")
     except Exception as e:
-        raise DataLoaderError(f"Error processing CSV: {e}") 
+        raise DataLoaderError(f"Error processing CSV: {e}")
+
+def load_project_data_from_db(project_id: str, db: Session) -> Tuple[Optional[Project], List[BomItem]]:
+    """
+    Load project and BOM data from the database.
+    
+    Args:
+        project_id: The ID of the project to load
+        db: Database session to use for queries
+        
+    Returns:
+        Tuple containing:
+        - Project object (or None if not found)
+        - List of BomItem objects (empty if project not found)
+    """
+    try:
+        # Fetch the project
+        project = db.query(Project).filter(
+            Project.project_id == project_id
+        ).first()
+        
+        if not project:
+            logger.error(f"Project {project_id} not found in database")
+            return None, []
+            
+        # Fetch all BOM items for this project
+        bom_items = db.query(BomItem).filter(
+            BomItem.project_id == project_id
+        ).all()
+        
+        logger.info(f"Loaded project {project_id} with {len(bom_items)} BOM items")
+        return project, bom_items
+        
+    except Exception as e:
+        logger.error(f"Error loading project data for {project_id}: {str(e)}")
+        return None, [] 
