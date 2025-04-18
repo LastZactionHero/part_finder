@@ -46,13 +46,16 @@ async def create_project(
         # Generate project ID using UUID
         project_id = str(uuid.uuid4())
         
-        logger.info(f"Creating project {project_id} with description: {bom.project_description}")
+        project_name = bom.project_name
+        
+        logger.info(f"Creating project {project_id} with name: {project_name} and description: {bom.project_description}")
         logger.info(f"BOM has {len(bom.components)} components.")
         
         # Create project in database
         db_project = crud_create_project(
             db=db,
             project_id=project_id,
+            name=project_name,
             description=bom.project_description,
             status='queued'
         )

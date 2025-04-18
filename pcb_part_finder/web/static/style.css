@@ -115,6 +115,24 @@ textarea:focus {
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
+input[type="text"] {
+    width: 100%;
+    padding: 1.25rem;
+    border: 2px solid var(--border-color);
+    border-radius: 0.75rem;
+    margin: 0.5rem 0 1.5rem 0;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1.6;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
 button {
     background-color: var(--primary-color);
     color: white;

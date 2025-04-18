@@ -3,6 +3,8 @@ const API_BASE_URL = 'http://localhost:8000';
 
 // DOM elements
 const componentInput = document.getElementById('componentInput');
+const projectNameInput = document.getElementById('projectNameInput');
+const projectDescriptionInput = document.getElementById('projectDescriptionInput');
 const submitButton = document.getElementById('submitButton');
 const statusSection = document.getElementById('statusSection');
 const statusMessage = document.getElementById('statusMessage');
@@ -98,7 +100,7 @@ function parseCSV(csv) {
 }
 
 // Create a new project
-async function createProject(components) {
+async function createProject(projectName, projectDescription, components) {
     try {
         const response = await fetch(`${API_BASE_URL}/project`, {
             method: 'POST',
@@ -106,8 +108,9 @@ async function createProject(components) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                components: components,
-                project_description: "Web UI Project"
+                project_name: projectName,
+                project_description: projectDescription,
+                components: components
             })
         });
 
@@ -290,6 +293,15 @@ submitButton.addEventListener('click', async () => {
             throw new Error('Please enter component data');
         }
 
+        const projectName = projectNameInput.value.trim();
+        const projectDescription = projectDescriptionInput.value.trim();
+
+        /* Remove requirement for project name and description
+        if (!projectName || !projectDescription) {
+            throw new Error('Please enter both Project Name and Description');
+        }
+        */
+
         const components = parseCSV(csv);
         if (components.length === 0) {
             throw new Error('No valid components found in the input');
@@ -304,7 +316,7 @@ submitButton.addEventListener('click', async () => {
         statusSection.classList.remove('hidden');
         statusMessage.innerHTML = '<div class="status-message">Creating project...</div>';
 
-        const projectId = await createProject(components);
+        const projectId = await createProject(projectName, projectDescription, components);
         window.history.pushState({}, '', `?project=${projectId}`);
         await pollProjectStatus(projectId);
     } catch (error) {

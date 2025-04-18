@@ -40,6 +40,7 @@ mouser_cache_manager = MouserApiCacheManager()
 # Define the worker function stub
 def _process_single_bom_item(
     bom_item: BomItem,
+    project_name: str,
     project_description: str,
     mouser_cache_manager: MouserApiCacheManager,
     full_bom_list: List[Dict[str, Any]] # Added argument for the full BOM list
@@ -55,6 +56,7 @@ def _process_single_bom_item(
 
     Args:
         bom_item: The specific BomItem ORM object to process.
+        project_name: The name of the parent project (for context).
         project_description: The description of the parent project (for context).
         mouser_cache_manager: The shared MouserApiCacheManager instance.
         full_bom_list: A list of dictionaries, each representing a part in the original BOM.
@@ -131,6 +133,7 @@ def _process_single_bom_item(
                 try:
                     eval_prompt = llm_handler.format_evaluation_prompt(
                         part_info, 
+                        project_name,
                         project_description, 
                         full_bom_list, # Pass the full BOM list here
                         mouser_results 
@@ -306,6 +309,7 @@ def process_project_from_db(
                     future = executor.submit(
                         _process_single_bom_item,
                         bom_item,
+                        project.name,
                         project.description,
                         mouser_cache_manager, # Pass the shared cache manager
                         bom_list_as_dicts # Pass the converted full BOM list

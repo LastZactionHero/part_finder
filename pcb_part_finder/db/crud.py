@@ -10,6 +10,7 @@ from ..schemas import InputBOM, BOMComponent
 def create_project(
     db: Session,
     project_id: str,
+    name: Optional[str] = None,
     description: Optional[str] = None,
     status: str = "queued"
 ) -> Project:
@@ -19,6 +20,7 @@ def create_project(
     Args:
         db: Database session
         project_id: Unique identifier for the project
+        name: Optional project name
         description: Optional project description
         status: Project status (defaults to "queued")
         
@@ -27,6 +29,7 @@ def create_project(
     """
     db_project = Project(
         project_id=project_id,
+        name=name,
         description=description,
         status=status
     )

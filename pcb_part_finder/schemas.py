@@ -11,8 +11,9 @@ class BOMComponent(BaseModel):
 
 class InputBOM(BaseModel):
     """Schema for the input BOM file."""
-    components: list[BOMComponent] = Field(..., description="List of components in the BOM")
+    project_name: Optional[str] = Field(None, description="Optional project name")
     project_description: Optional[str] = Field(None, description="Optional project description")
+    components: list[BOMComponent] = Field(..., description="List of components in the BOM")
 
 class MatchedComponent(BOMComponent):
     """Schema for a matched component, extending the base BOMComponent."""
