@@ -30,7 +30,8 @@ def generate_project_id():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    api_url = os.environ.get('API_URL', 'http://localhost:8000')
+    return render_template('index.html', api_url=api_url)
 
 @app.route('/project', methods=['POST'])
 def create_project():

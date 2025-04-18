@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: part-finder-config
+  namespace: part-finder
+data:
+  DATABASE_URL: "postgresql://part_finder:part_finder@postgres:5432/part_finder"
+  CACHE_DIR: "/app/cache"
+  PINECONE_INDEX: "mouserparts"
+  API_URL: "http://localhost:8000" 
