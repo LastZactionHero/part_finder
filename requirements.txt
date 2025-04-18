@@ -10,3 +10,6 @@ flask==3.0.2
 flask-cors==4.0.0
 pinecone==6.0.2
 google-genai==1.10.0
+SQLAlchemy==2.0.27
+psycopg2-binary==2.9.9
+alembic==1.13.1

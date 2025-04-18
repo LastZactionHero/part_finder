@@ -18,7 +18,7 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 # Expose the web port
-EXPOSE 8000
+EXPOSE 3000
 
 # Command to run the web server with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "pcb_part_finder.web.server:app"] 
+CMD ["gunicorn", "--bind", "0.0.0.0:3000", "--workers", "4", "pcb_part_finder.web.server:app"] 

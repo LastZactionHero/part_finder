@@ -224,7 +224,8 @@ def get_llm_response_gemini(prompt: str) -> Optional[str]:
     Raises:
         LlmApiError: If the API call fails.
     """
-    model: str = "gemini-2.5-pro-preview-03-25"
+    # model: str = "gemini-2.5-pro-preview-03-25"
+    model: str = "gemini-2.5-flash-preview-04-17"
     temperature: float = 0.2
     client = get_gemini_client()
     if not client:
