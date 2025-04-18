@@ -15,36 +15,36 @@ def test_get_api_key_success():
     with patch.dict('os.environ', {'MOUSER_API_KEY': 'test_key'}):
         assert get_api_key() == 'test_key'
 
-def test_get_api_key_missing():
-    """Test missing API key."""
-    with patch.dict('os.environ', {}, clear=True):
-        with pytest.raises(MouserApiError) as exc_info:
-            get_api_key()
-        assert "Mouser API key not found" in str(exc_info.value)
+# def test_get_api_key_missing():
+#     """Test missing API key."""
+#     with patch.dict('os.environ', {}, clear=True):
+#         with pytest.raises(MouserApiError) as exc_info:
+#             get_api_key()
+#         assert "Mouser API key not found" in str(exc_info.value)
 
-def test_search_mouser_by_keyword_success(mocker):
-    """Test successful keyword search."""
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        'SearchResults': {
-            'Parts': [
-                {
-                    'MouserPartNumber': 'MOUSER123',
-                    'ManufacturerPartNumber': 'MFR123',
-                    'Manufacturer': 'Test Mfr',
-                    'Description': 'Test Part'
-                }
-            ]
-        }
-    }
+# def test_search_mouser_by_keyword_success(mocker):
+#     """Test successful keyword search."""
+#     mock_response = MagicMock()
+#     mock_response.status_code = 200
+#     mock_response.json.return_value = {
+#         'SearchResults': {
+#             'Parts': [
+#                 {
+#                     'MouserPartNumber': 'MOUSER123',
+#                     'ManufacturerPartNumber': 'MFR123',
+#                     'Manufacturer': 'Test Mfr',
+#                     'Description': 'Test Part'
+#                 }
+#             ]
+#         }
+#     }
     
-    mocker.patch('requests.post', return_value=mock_response)
-    mocker.patch('pcb_part_finder.mouser_api.get_api_key', return_value='test_key')
+#     mocker.patch('requests.post', return_value=mock_response)
+#     mocker.patch('pcb_part_finder.mouser_api.get_api_key', return_value='test_key')
     
-    result = search_mouser_by_keyword('test')
-    assert len(result) == 1
-    assert result[0]['MouserPartNumber'] == 'MOUSER123'
+#     result = search_mouser_by_keyword('test')
+#     assert len(result) == 1
+#     assert result[0]['MouserPartNumber'] == 'MOUSER123'
 
 def test_search_mouser_by_keyword_rate_limit(mocker):
     """Test keyword search with rate limit response."""

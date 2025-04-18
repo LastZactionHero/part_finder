@@ -68,6 +68,10 @@ The project includes a comprehensive test suite that can be run using Docker Com
     docker compose run --rm -v $(pwd)/tests:/app/tests api python -m pytest tests/ -v
     ```
 
+Or a single test:
+
+`docker compose run --rm -v $(pwd)/tests:/app/tests api python -m pytest tests/test_main.py::test_main_success -v`
+
 The test suite includes:
 - Data loader tests (`test_data_loader.py`)
 - Mouser API tests (`test_mouser_api.py`)
