@@ -6,6 +6,8 @@ from typing import Optional
 import datetime
 import uuid
 import logging
+import json
+from pydantic import ValidationError
 
 from ..schemas import InputBOM, MatchedBOM, MatchedComponent, BOMComponent
 from ..db.crud import (
@@ -28,42 +30,89 @@ logger = logging.getLogger(__name__)
 
 @router.post("")
 async def create_project(
-    bom: InputBOM,
+    raw_data: dict,
     db: Session = Depends(get_db)
 ):
     """
     Create a new project with BOM data.
+    If component data is invalid, it's captured in the description field.
     Truncates to 20 components if needed.
     """
+    processed_components = []
+    errors = []
     try:
-        # Truncate to 20 components if needed
+        # Extract project details (optional based on schema)
+        project_name = raw_data.get("project_name")
+        project_description = raw_data.get("project_description")
+        
+        raw_components = raw_data.get("components", [])
+        
+        if not isinstance(raw_components, list):
+             raise HTTPException(status_code=400, detail="Input 'components' must be a list.")
+
+        # Process components, applying fallback for invalid ones
+        for i, comp_data in enumerate(raw_components):
+            if not isinstance(comp_data, dict):
+                 logger.warning(f"Component item at index {i} is not a dictionary, skipping.")
+                 errors.append(f"Item at index {i} is not a dictionary: {comp_data}")
+                 # Create a fallback even for non-dict items
+                 fallback_desc = f"Invalid component data (not a dictionary): {json.dumps(comp_data)}"
+                 processed_components.append(BOMComponent(
+                     qty=1, 
+                     description=fallback_desc, 
+                     package="unknown", 
+                     possible_mpn=None, 
+                     notes=None
+                 ))
+                 continue
+
+            try:
+                # Try to validate against the BOMComponent schema
+                validated_comp = BOMComponent.model_validate(comp_data)
+                processed_components.append(validated_comp)
+            except ValidationError as e:
+                logger.warning(f"Validation failed for component at index {i}: {e}. Creating fallback.")
+                # Create fallback description containing original data
+                fallback_desc = f"Original Data (validation failed): {json.dumps(comp_data)}"
+                errors.append(f"Validation failed for component {i}: {e}")
+                
+                # Create fallback component
+                processed_components.append(BOMComponent(
+                    qty=comp_data.get("qty", 1) if isinstance(comp_data.get("qty"), int) else 1, # Try to get qty, else default 1
+                    description=fallback_desc,
+                    package=str(comp_data.get("package", "unknown")), # Try to get package, else default 'unknown'
+                    possible_mpn=str(comp_data.get("possible_mpn")) if "possible_mpn" in comp_data else None,
+                    notes=str(comp_data.get("notes")) if "notes" in comp_data else None
+                ))
+
+        # Truncate to 20 components if needed (after processing)
         truncation_info = None
-        if len(bom.components) > 20:
-            truncation_info = f"BOM truncated from {len(bom.components)} to 20 components"
+        if len(processed_components) > 20:
+            truncation_info = f"BOM truncated from {len(processed_components)} to 20 components after processing."
             logger.info(truncation_info)
-            bom.components = bom.components[:20]
+            processed_components = processed_components[:20]
         
         # Generate project ID using UUID
         project_id = str(uuid.uuid4())
         
-        project_name = bom.project_name
-        
-        logger.info(f"Creating project {project_id} with name: {project_name} and description: {bom.project_description}")
-        logger.info(f"BOM has {len(bom.components)} components.")
-        
+        logger.info(f"Creating project {project_id} with name: {project_name} and description: {project_description}")
+        logger.info(f"Processed BOM has {len(processed_components)} components.")
+        if errors:
+             logger.warning(f"Encountered {len(errors)} issues during component processing for project {project_id}.")
+
         # Create project in database
         db_project = crud_create_project(
             db=db,
             project_id=project_id,
             name=project_name,
-            description=bom.project_description,
+            description=project_description,
             status='queued'
         )
         logger.info(f"Project entry created for {project_id}")
         
-        # Create BOM items
-        for i, comp in enumerate(bom.components):
-            logger.info(f"Creating BOM item {i+1}/{len(bom.components)} for project {project_id}: Qty={comp.qty}, Desc={comp.description[:50]}...")
+        # Create BOM items using processed components
+        for i, comp in enumerate(processed_components):
+            logger.info(f"Creating BOM item {i+1}/{len(processed_components)} for project {project_id}: Qty={comp.qty}, Desc={comp.description[:50]}...")
             create_bom_item(
                 db=db,
                 item=comp,
@@ -77,13 +126,18 @@ async def create_project(
         
         return {
             "project_id": project_id,
-            "truncation_info": truncation_info
+            "truncation_info": truncation_info,
+            "processing_warnings": errors if errors else None
         }
     except Exception as e:
         # Rollback on error
         db.rollback()
-        logger.error(f"Error creating project: {e}", exc_info=True)  # Log detailed error
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error creating project: {e}", exc_info=True)
+        # Check if it's an HTTPException we raised intentionally
+        if isinstance(e, HTTPException):
+             raise e
+        # Otherwise, return a generic 500 error
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/{project_id}")
 async def get_project(

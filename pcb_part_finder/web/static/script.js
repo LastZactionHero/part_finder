@@ -6,9 +6,12 @@ const componentInput = document.getElementById('componentInput');
 const projectNameInput = document.getElementById('projectNameInput');
 const projectDescriptionInput = document.getElementById('projectDescriptionInput');
 const submitButton = document.getElementById('submitButton');
-const statusSection = document.getElementById('statusSection');
+const processingResultsSection = document.getElementById('processing-results-section'); // Updated: Combined section
+const queueInfoContainer = document.getElementById('queueInfoContainer'); // Container for queue info
+const statusMessageContainer = document.getElementById('statusMessageContainer'); // Container for status messages
 const statusMessage = document.getElementById('statusMessage');
-const resultsSection = document.getElementById('resultsSection');
+const resultsHeader = document.getElementById('resultsHeader'); // Header for results table
+const resultsTableContainer = document.getElementById('resultsTableContainer'); // Container for results table
 const resultsTable = document.getElementById('resultsTable').getElementsByTagName('tbody')[0];
 const queueLength = document.getElementById('queueLength');
 
@@ -77,17 +80,22 @@ function parseCSV(csv) {
         // Handle case where last field might be empty
         if (line.endsWith(',')) values.push('');
 
-
         const component = {};
+        // Check if the number of values matches the number of headers OR if it's a single value line
         if (values.length === headers.length) {
             headers.forEach((header, index) => {
-                const apiField = fieldMap[header] || header.toLowerCase();
+                const apiField = fieldMap[header] || header.toLowerCase(); // Map or use lowercased header
                 component[apiField] = values[index];
             });
-        } else {
-            // Handle invalid row format - less likely now but good fallback
-            console.warn(`Skipping invalid CSV row: ${line} (Parsed ${values.length} fields, expected ${headers.length})`);
-            component.description = `${line}`;
+        } else if (values.length === 1 && values[0]) { // Handle single description per line
+            component.description = values[0];
+            component.qty = '1'; // Default Qty
+            component.possible_mpn = '';
+            component.package = '';
+            component.notes = 'Single column input';
+        } else if (line.trim()) { // Catch other invalid lines
+            console.warn(`Skipping invalid CSV row: ${line} (Parsed ${values.length} fields, expected ${headers.length} or 1)`);
+            component.description = `${line}`; // Treat the whole line as description
             component.qty = '1';
             component.possible_mpn = '';
             component.package = '';
@@ -171,7 +179,7 @@ function updateResultsTable(components) {
         const statusCell = row.insertCell();
         const priceCell = row.insertCell();
         const availCell = row.insertCell();
-        const datasheetCell = row.insertCell();
+        const mouserCell = row.insertCell();
 
         qtyCell.textContent = component.qty;
         descCell.textContent = component.description;
@@ -225,15 +233,15 @@ function updateResultsTable(components) {
         statusCell.classList.add(statusClass);
         // --- End New CSS Class Logic ---
 
-        // Add datasheet link if available
-        if (component.datasheet_url) {
+        // Add Mouser link if available
+        if (component.mouser_part_number) {
             const link = document.createElement('a');
-            link.href = component.datasheet_url;
-            link.textContent = 'Link';
-            link.target = '_blank'; // Open in new tab
-            datasheetCell.appendChild(link);
+            link.href = `https://www.mouser.com/ProductDetail/${component.mouser_part_number}`;
+            link.textContent = component.mouser_part_number;
+            link.target = '_blank';
+            mouserCell.appendChild(link);
         } else {
-            datasheetCell.textContent = 'N/A';
+            mouserCell.textContent = 'Not matched';
         }
     });
 }
@@ -243,6 +251,9 @@ async function pollProjectStatus(projectId) {
     try {
         const status = await getProjectStatus(projectId);
         
+        // Always show the main processing section once polling starts
+        processingResultsSection.classList.remove('hidden');
+
         if (status.status === 'queued') {
             statusMessage.innerHTML = `
                 <div class="status-message">
@@ -250,6 +261,10 @@ async function pollProjectStatus(projectId) {
                     <p>Position: ${status.position} of ${status.total_in_queue}</p>
                 </div>
             `;
+            // Hide results table while queued
+            resultsHeader.classList.add('hidden');
+            resultsTableContainer.classList.add('hidden');
+            queueInfoContainer.classList.remove('hidden'); // Show queue info
             setTimeout(() => pollProjectStatus(projectId), 10000); // Poll every 10 seconds
         } else if (status.status === 'processing') {
             statusMessage.innerHTML = `
@@ -258,30 +273,47 @@ async function pollProjectStatus(projectId) {
                 </div>
             `;
             // Update the table with partial results if available
-            if (status.bom && status.bom.components) {
+            if (status.bom && status.bom.components && status.bom.components.length > 0) {
                 updateResultsTable(status.bom.components);
-                resultsSection.classList.remove('hidden');
+                resultsHeader.classList.remove('hidden'); // Show results header
+                resultsTableContainer.classList.remove('hidden'); // Show results table
+            } else {
+                // Hide results table if no components yet
+                resultsHeader.classList.add('hidden');
+                resultsTableContainer.classList.add('hidden');
             }
+            queueInfoContainer.classList.add('hidden'); // Hide queue info while processing
             setTimeout(() => pollProjectStatus(projectId), 5000); // Poll faster (every 5 seconds)
         } else if (status.status === 'error') {
             statusMessage.innerHTML = '<div class="error">Processing failed.</div>';
             submitButton.disabled = false;
             submitButton.textContent = 'Submit';
+            // Hide results table on error
+            resultsHeader.classList.add('hidden');
+            resultsTableContainer.classList.add('hidden');
+            queueInfoContainer.classList.remove('hidden'); // Show queue info
         } else if (status.status === 'finished') {
             statusMessage.innerHTML = '<div class="success">Processing complete!</div>';
             updateResultsTable(status.bom.components);
-            resultsSection.classList.remove('hidden');
+            resultsHeader.classList.remove('hidden'); // Ensure results header is visible
+            resultsTableContainer.classList.remove('hidden'); // Ensure results table is visible
             submitButton.disabled = false;
             submitButton.textContent = 'Submit';
+            queueInfoContainer.classList.remove('hidden'); // Show queue info
         } else {
             statusMessage.innerHTML = `<div class="error">Unknown project status: ${status.status}</div>`;
             submitButton.disabled = false;
             submitButton.textContent = 'Submit';
+            // Hide results table on unknown status
+            resultsHeader.classList.add('hidden');
+            resultsTableContainer.classList.add('hidden');
+            queueInfoContainer.classList.remove('hidden'); // Show queue info
         }
     } catch (error) {
         statusMessage.innerHTML = `<div class="error">Error fetching status: ${error.message}</div>`;
         submitButton.disabled = false;
         submitButton.textContent = 'Submit';
+        queueInfoContainer.classList.remove('hidden'); // Show queue info on error
     }
 }
 
@@ -307,13 +339,14 @@ submitButton.addEventListener('click', async () => {
             throw new Error('No valid components found in the input');
         }
 
-        // Clear previous results
+        // Clear previous results and hide specific parts of the processing section
         resultsTable.innerHTML = '';
-        resultsSection.classList.add('hidden');
+        resultsHeader.classList.add('hidden');
+        resultsTableContainer.classList.add('hidden');
 
         submitButton.disabled = true;
         submitButton.textContent = 'Processing...';
-        statusSection.classList.remove('hidden');
+        processingResultsSection.classList.remove('hidden'); // Show the main container
         statusMessage.innerHTML = '<div class="status-message">Creating project...</div>';
 
         const projectId = await createProject(projectName, projectDescription, components);
@@ -334,12 +367,14 @@ window.addEventListener('load', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const projectId = urlParams.get('project');
     if (projectId) {
-        statusSection.classList.remove('hidden');
+        processingResultsSection.classList.remove('hidden'); // Show the container if project ID exists
         submitButton.disabled = true;
         submitButton.textContent = 'Processing...';
         pollProjectStatus(projectId);
     } else {
         submitButton.disabled = false;
         submitButton.textContent = 'Submit';
+        // Ensure the processing section is hidden on initial load without a project ID
+        processingResultsSection.classList.add('hidden');
     }
 }); 

@@ -1,17 +1,17 @@
 :root {
-    --primary-color: #3b82f6;
-    --primary-hover: #2563eb;
-    --secondary-color: #1e40af;
-    --background-color: #f1f5f9;
-    --card-background: #ffffff;
-    --text-color: #1e293b;
-    --text-secondary: #64748b;
-    --border-color: #e2e8f0;
-    --error-color: #ef4444;
-    --success-color: #22c55e;
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    --primary-color: #ff00ff; /* Neon Pink/Magenta */
+    --primary-hover: #cc00cc; /* Darker Pink */
+    --secondary-color: #00ffff; /* Cyan/Electric Blue */
+    --background-color: #1a1a1a; /* Very Dark Gray */
+    --card-background: #2a2a2a; /* Lighter Dark Gray */
+    --text-color: #f0f0f0; /* Light Gray/Off-White */
+    --text-secondary: #a0a0a0; /* Medium Gray */
+    --border-color: #444444; /* Dark Gray */
+    --error-color: #ff3333; /* Bright Red */
+    --success-color: #33ff33; /* Bright Green */
+    --shadow-sm: 0 1px 2px 0 rgb(255 0 255 / 0.1); /* Neon pink shadow */
+    --shadow-md: 0 4px 6px -1px rgb(0 255 255 / 0.15); /* Cyan shadow */
+    --shadow-lg: 0 10px 15px -3px rgb(255 0 255 / 0.2); /* Larger neon pink shadow */
 }
 
 * {
@@ -58,6 +58,21 @@ h1 {
     margin-right: auto;
 }
 
+/* Styles for header info paragraphs */
+.header-info {
+    color: var(--text-secondary);
+    max-width: 800px; /* Maintain consistent width */
+    margin: 0.5rem auto; /* Add some vertical spacing */
+}
+
+.header-divider {
+    border: 0;
+    height: 1px;
+    background-color: var(--border-color);
+    max-width: 800px;
+    margin: 1rem auto; /* Spacing around the divider */
+}
+
 .project-info {
     background-color: var(--card-background);
     padding: 2rem;
@@ -79,6 +94,9 @@ h1 {
     box-shadow: var(--shadow-sm);
     display: inline-block;
     font-weight: 500;
+    margin-bottom: 1.5rem;
+    width: 100%;
+    text-align: center;
 }
 
 .upload-section {
@@ -112,7 +130,7 @@ textarea {
 textarea:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(255, 0, 255, 0.1);
 }
 
 input[type="text"] {
@@ -130,7 +148,7 @@ input[type="text"] {
 input[type="text"]:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(255, 0, 255, 0.1);
 }
 
 button {
@@ -313,3 +331,33 @@ a:hover {
 .status-api-error, .status-system-error, .status-unknown { background-color: #fbe_DEE; }
 .status-pending { background-color: #f8f9fa; }
 */ 
+
+/* New combined section styling */
+#processing-results-section {
+    background-color: var(--card-background);
+    padding: 2.5rem;
+    border-radius: 1rem;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 2rem;
+}
+
+/* Adjust spacing within the new section */
+#processing-results-section .queue-info {
+    margin-bottom: 1.5rem; /* Space below queue info */
+}
+
+#statusMessageContainer {
+    margin-bottom: 1.5rem; /* Space below status message */
+}
+
+#resultsHeader {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    color: var(--text-color);
+}
+
+#statusMessage {
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+    background-color: var(--background-color);
+} 

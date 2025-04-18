@@ -3,24 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PCB Part Finder</title>
+    <title>BOM Part Finder</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>PCB Part Finder</h1>
+            <h1>BOM Part Finder</h1>
             <p class="description">Upload your component list and get matched Mouser parts automatically</p>
-            <div class="project-info">
-                <p>Mapping PCB components to actual products is a pain. This aims to simplify the process: provide a rough component list automatically match it to appropriate Mouser parts.<p>
-                <hr/><br/>
-                <p>Not working? Feature request? Improvement ideas? <a href="https://github.com/LastZactionHero/part_finder/issues" target="_blank" rel="noopener noreferrer">Open an issue on GitHub</a></p>
-                <p>Working great? Saved you a bunch of time? <a href="https://www.buymeacoffee.com/lastzactionhero" target="_blank" rel="noopener noreferrer">Buy me a coffee</a></p>
-            </div>
-            <div class="queue-info">
-                <span>Queue Status: </span>
-                <span id="queueLength">Loading...</span>
-            </div>
+            <p class="header-info">Mapping your PCB BOM to actual components is a pain. This aims to simplify the process: provide a rough component list automatically match it to appropriate Mouser parts.</p>
+            <hr class="header-divider"/>
+            <p class="header-info">
+                <a href="https://github.com/LastZactionHero/part_finder/issues" target="_blank" rel="noopener noreferrer">Open an issue on GitHub</a>
+                <a href="https://www.buymeacoffee.com/lastzactionhero" target="_blank" rel="noopener noreferrer">Buy me a coffee</a>
+            </p>
         </header>
 
         <main>
@@ -29,7 +25,7 @@
                 <label for="projectNameInput">Project Name:</label>
                 <input type="text" id="projectNameInput" placeholder="Enter project name...">
                 <label for="projectDescriptionInput">Project Description:</label>
-                <textarea id="projectDescriptionInput" placeholder="Enter project description (optional)" rows="2"></textarea>
+                <textarea id="projectDescriptionInput" placeholder="Optional, but useful context for component matching" rows="2"></textarea>
                 <label for="componentInput">Enter Components (one per line):</label>
                 <textarea id="componentInput">Qty,Description,Possible MPN,Package,Notes/Source
 1,"ESP32 Wi-Fi/BT Module, 8MB Flash, 2MB PSRAM",ESP32-WROOM-32E-N8R2,RF_Module:ESP32-WROOM-32E,"Sufficient for MPN, SMT. Use Espressif KiCad Lib. Verify footprint."
@@ -38,16 +34,17 @@
 25 individual cherry mx keys that I can solder on for a custom keyboard
 6 0.1uf ceramic caps, 0805</textarea>
                 <button id="submitButton" disabled>Submit</button>
+                <div class="queue-info" id="queueInfoContainer">
+                    <span id="queueLength">Loading Queue...</span>
+                </div>
             </div>
 
-            <div id="statusSection" class="hidden">
-                <h2>Processing Status</h2>
-                <div id="statusMessage"></div>
-            </div>
-
-            <div id="resultsSection" class="hidden">
-                <h2>Matched Parts</h2>
-                <div class="table-container">
+            <div id="processing-results-section" class="hidden">
+                <div id="statusMessageContainer">
+                     <div id="statusMessage"></div>
+                </div>
+                <h2 id="resultsHeader" class="hidden">Matched Parts</h2>
+                <div class="table-container hidden" id="resultsTableContainer">
                     <table id="resultsTable">
                         <thead>
                             <tr>
