@@ -1,226 +1,276 @@
 
-Okay, let's create a detailed, iterative plan to implement the real data processing logic in `pcb_part_finder/core/processor.py`, replacing the mock data generation.
+Okay, let's create a detailed blueprint and then break it down into iterative, actionable steps suitable for generating prompts for a code-generation LLM.
 
-**Overall Goal:** Modify `process_project_from_db` in `pcb_part_finder/core/processor.py` to use `llm_handler.py` and `mouser_api.py` functions to enrich `BomItem` data loaded from the database with real component information from Mouser, guided by LLM analysis, and then save these results back to the database via `output_writer.py`.
+## Detailed Blueprint
 
-**High-Level Plan:**
+1.  **Database Layer:**
+    *   **Objective:** Define the storage structure for cached Mouser API responses.
+    *   **Tasks:**
+        *   Modify `init.sql` to add a new table `mouser_api_cache`.
+        *   Define columns: `cache_id` (PK, auto-incrementing), `search_term` (text, indexed), `search_type` (text, e.g., 'keyword' or 'mpn', indexed), `response_data` (JSONB for efficient storage and potential querying of JSON content), `cached_at` (timestamp with timezone, indexed, defaults to current time).
+        *   Create a composite index on `(search_term, search_type)` for fast lookups.
+        *   Create an index on `cached_at` for potential cleanup tasks.
+    *   **SQLAlchemy Model:**
+        *   Create a new file `pcb_part_finder/core/models.py` (if it doesn't exist).
+        *   Define a declarative base if one doesn't already exist centrally (e.g., in `database.py`).
+        *   Define the `MouserApiCache` model mapping to the `mouser_api_cache` table, including appropriate SQLAlchemy types (`Integer`, `String`, `JSONB` from `sqlalchemy.dialects.postgresql`, `TIMESTAMP`).
 
-1.  **Setup:** Import necessary modules and initialize variables.
-2.  **Load Data:** Load project details and BOM items from the database (already implemented).
-3.  **Iterate & Process BOM Items:** Loop through each `BomItem`.
-    *   Generate search terms using the LLM based on item description, MPN, package, etc.
-    *   Search Mouser using the generated terms.
-    *   Evaluate Mouser results with the LLM to select the best Manufacturer Part Number (MPN).
-    *   Fetch detailed information for the selected MPN from Mouser.
-    *   Format the results, handling successes and failures gracefully.
-    *   Keep track of selected parts for context in subsequent LLM evaluations.
-4.  **Save Results:** Save the processed data (enriched BOM items) back to the database (already implemented, needs correct input structure).
+2.  **Cache Manager Logic:**
+    *   **Objective:** Encapsulate the logic for checking, retrieving, and storing cache entries.
+    *   **Tasks:**
+        *   Create a new file `pcb_part_finder/core/cache_manager.py`.
+        *   Define a class `MouserApiCacheManager`.
+        *   Implement `get_cached_response(self, search_term: str, search_type: str, db: Session, max_age_seconds: int = 86400)`:
+            *   Queries the `MouserApiCache` model.
+            *   Filters by `search_term` and `search_type`.
+            *   Filters by `cached_at` being within the `max_age_seconds`.
+            *   Orders by `cached_at` descending and takes the first result.
+            *   Returns the `response_data` (as a Python dict/list) if a valid entry is found, else `None`.
+        *   Implement `cache_response(self, search_term: str, search_type: str, response_data: dict, db: Session)`:
+            *   Creates a new `MouserApiCache` instance.
+            *   Populates it with the provided data.
+            *   Adds the instance to the session (`db.add()`).
+            *   Commits the session (`db.commit()`).
+            *   Includes error handling (e.g., `try...except...finally` with `db.rollback()` in case of commit errors).
 
-**Iterative Breakdown (Chunking):**
+3.  **Mouser API Integration:**
+    *   **Objective:** Modify the existing Mouser API functions to utilize the cache manager.
+    *   **Tasks:**
+        *   Refactor `search_mouser_by_keyword` and `search_mouser_by_mpn` in `pcb_part_finder/core/mouser_api.py`.
+        *   Add `cache_manager: MouserApiCacheManager` and `db: Session` as parameters to both functions.
+        *   **Inside each function:**
+            *   Call `cache_manager.get_cached_response` first.
+            *   If a cached response is returned:
+                *   **Crucially:** Parse this raw cached JSON *exactly* as the original API response would be parsed later in the function (extracting specific fields, formatting price/availability etc. for `search_mouser_by_mpn`, returning the list of parts for `search_mouser_by_keyword`).
+                *   Return the parsed data.
+            *   If no cached response:
+                *   Proceed with the `requests.post` call to the Mouser API.
+                *   Handle API errors (`MouserApiError`).
+                *   If the API call is successful (status 200, no errors in JSON):
+                    *   Get the raw JSON response (`response.json()`).
+                    *   Call `cache_manager.cache_response` with the search term, type, *raw JSON response*, and the db session.
+                    *   **Crucially:** Parse the *freshly fetched* raw JSON response (the same parsing logic as used for the cached path).
+                    *   Return the parsed data.
+                *   If the API call fails or returns errors, raise `MouserApiError` as before (do not cache errors).
 
-*   **Chunk 1: Basic Structure & Imports:** Modify `processor.py` to import required modules (`llm_handler`, `mouser_api`) and set up the main loop structure, replacing the mock data generation block with a placeholder loop.
-*   **Chunk 2: Search Term Generation:** Implement the logic within the loop to format the prompt, call the LLM to get search terms, and parse the response for a single `BomItem`. Add basic error handling.
-*   **Chunk 3: Mouser Keyword Search:** Add the logic to iterate through the generated search terms, call the Mouser keyword search API, and aggregate unique results. Add error handling for API calls.
-*   **Chunk 4: LLM Evaluation:** Implement the LLM call to evaluate the aggregated Mouser results and select the best MPN. Requires formatting the evaluation prompt with item details, project notes, *previously selected parts* (need to track this), and search results. Handle LLM errors and cases where no MPN is chosen.
-*   **Chunk 5: Fetch Final Part Details:** Add the call to the Mouser MPN search API using the MPN selected by the LLM. Handle API errors and cases where the MPN isn't found.
-*   **Chunk 6: Result Formatting & Accumulation:** Structure the final `match_data` based on the success or failure of the previous steps (search term generation, keyword search, evaluation, final fetch). Set an appropriate `status` field. Store this result and update the list of previously selected parts. Ensure the data format matches what `save_bom_results_to_db` expects.
-*   **Chunk 7: Integration & Finalization:** Ensure the loop handles errors for individual items gracefully and continues processing others. Verify the final `bom_items_with_matches` list is correctly passed to `save_bom_results_to_db`. Add overall try/except blocks and logging.
+4.  **API Endpoint Wiring:**
+    *   **Objective:** Connect the database session and cache manager instance to the API endpoints that trigger Mouser searches.
+    *   **Tasks:**
+        *   Identify the FastAPI endpoints (likely in `pcb_part_finder/api/main.py` or similar) that call `search_mouser_by_keyword` or `search_mouser_by_mpn`.
+        *   Ensure these endpoints use FastAPI's dependency injection to get a database session: `db: Session = Depends(get_db)`.
+        *   Instantiate the `MouserApiCacheManager`. For simplicity initially, this could be a module-level instance in the API endpoint file or passed down from the application creation logic. A dependency provider function would be cleaner long-term.
+        *   Pass the `cache_manager` instance and the `db` session to the calls to `search_mouser_by_keyword` and `search_mouser_by_mpn`.
 
-**Second Iteration (Smaller Steps for Implementation):**
+## Iterative Steps & LLM Prompts
 
-1.  **Step 1: Imports and Setup:**
-    *   Add imports: `llm_handler`, `mouser_api`, `LlmApiError`, `MouserApiError`, `List`.
-    *   Initialize `bom_items_with_matches = []` before the loop.
-    *   Initialize `selected_part_details = []` before the loop (to store `{ 'Description': ..., 'Manufacturer Part Number': ... }` for context).
-    *   Remove the existing mock data generation block inside the `for bom_item in bom_items:` loop.
-2.  **Step 2: Generate Search Terms (Inside Loop):**
-    *   Create `part_info` dict from `bom_item` attributes (`description`, `possible_mpn`, `package`, `notes`).
-    *   Wrap LLM calls in a `try...except LlmApiError`.
-    *   Call `llm_handler.format_search_term_prompt(part_info)`.
-    *   Call `llm_handler.get_llm_response()`.
-    *   Call `llm_handler.parse_search_terms()`.
-    *   Store terms or handle failure (log error, set a flag/status for this item).
-3.  **Step 3: Perform Mouser Keyword Search (Inside Loop):**
-    *   Check if search terms were successfully generated.
-    *   Initialize `mouser_results = []` and `unique_mpns = set()`.
-    *   Loop through search terms.
-    *   Wrap Mouser call in `try...except MouserApiError`.
-    *   Call `mouser_api.search_mouser_by_keyword()`.
-    *   Iterate through results, add unique ones (based on `MouserPartNumber`) to `mouser_results`.
-    *   Handle failure (log error, set flag/status).
-4.  **Step 4: Evaluate Search Results (Inside Loop):**
-    *   Check if `mouser_results` were found.
-    *   Wrap LLM calls in `try...except LlmApiError`.
-    *   Call `llm_handler.format_evaluation_prompt(part_info, project.project_notes, selected_part_details, mouser_results)`.
-    *   Call `llm_handler.get_llm_response()`.
-    *   Call `llm_handler.extract_mpn_from_eval()`.
-    *   Store the chosen MPN or handle failure (log error, set flag/status).
-5.  **Step 5: Get Final Part Details (Inside Loop):**
-    *   Check if an MPN was successfully extracted.
-    *   Wrap Mouser call in `try...except MouserApiError`.
-    *   Call `mouser_api.search_mouser_by_mpn(chosen_mpn)`.
-    *   Store the detailed part dictionary or handle failure (log error, set flag/status).
-6.  **Step 6: Format and Store Result (Inside Loop):**
-    *   Initialize `match_data = {}` and `status = 'error'`.
-    *   Based on the flags/status set in previous steps:
-        *   If final part details fetched: Populate `match_data` with details from `search_mouser_by_mpn` result (Mouser Part Number, MPN, Manufacturer, Description, Datasheet, Price, Availability), set `status = 'matched'`. Add part details to `selected_part_details`.
-        *   If MPN lookup failed: Set `status = 'mpn_lookup_failed'`. Populate `match_data` with minimal info and the failed MPN if available.
-        *   If evaluation failed: Set `status = 'evaluation_failed'`.
-        *   If no keyword results: Set `status = 'no_keyword_results'`.
-        *   If search term generation failed: Set `status = 'search_term_failed'`.
-    *   Add the `status` key to `match_data`.
-    *   Create `item_data` dict: `{ 'bom_item_id': bom_item.bom_item_id, 'quantity': bom_item.quantity, 'description': bom_item.description, 'matches': [match_data] }`. Note: `output_writer` expects a list for `matches`. We are generating one primary match/status per item here.
-    *   Append `item_data` to `bom_items_with_matches`.
-7.  **Step 7: Final Integration:**
-    *   Ensure the loop continues to the next `bom_item` even if errors occur for the current one.
-    *   The call `save_bom_results_to_db(project_id, bom_items_with_matches, db)` should remain after the loop.
-    *   Review overall logging for clarity.
-
-This step-by-step breakdown seems appropriately sized for implementation. Each step introduces a manageable piece of functionality.
+Here's the breakdown into smaller steps, each followed by a prompt for a code-generation LLM.
 
 ---
 
-**Implementation Prompts:**
+### Step 1: Database Schema Update
 
-Here are the prompts for a code-generation LLM, designed to implement the plan step-by-step:
+**Context:** Define the database table structure in the initialization script.
 
-**Prompt 1: Setup and Imports**
-
-```text
-Okay, let's start modifying `pcb_part_finder/core/processor.py`.
-
-1.  Add the following imports at the top:
-    *   `from typing import List, Dict, Any` (Update existing import if necessary)
-    *   `from . import llm_handler`
-    *   `from . import mouser_api`
-    *   `from .llm_handler import LlmApiError`
-    *   `from .mouser_api import MouserApiError`
-2.  Inside the `process_project_from_db` function, right before the `for bom_item in bom_items:` loop, initialize two empty lists:
-    *   `bom_items_with_matches = []`
-    *   `selected_part_details = []`
-3.  Remove the entire block of code *inside* the `for bom_item in bom_items:` loop that currently generates mock `matches` and `item_data`. The loop structure (`for bom_item in bom_items:`) should remain, but its body should be empty for now.
-```
-
-**Prompt 2: Generate Search Terms**
+**LLM Prompt:**
 
 ```text
-Continuing in `pcb_part_finder/core/processor.py` inside the `for bom_item in bom_items:` loop:
+Modify the `init.sql` file. Add a new table definition for `mouser_api_cache` at the end of the file, before the index creation statements.
 
-1.  Create a dictionary `part_info` from the current `bom_item` object. Include keys 'Description', 'Possible MPN', 'Package', and 'Notes/Source', mapping them to the corresponding attributes of `bom_item` (e.g., `bom_item.description`, `bom_item.possible_mpn`, `bom_item.package`, `bom_item.notes`). Handle potential `None` values gracefully, perhaps by defaulting to empty strings.
-2.  Initialize `search_terms = []` and `status = 'pending'`.
-3.  Add a `try...except LlmApiError as e:` block.
-    *   Inside the `try` block:
-        *   Generate the prompt string: `search_prompt = llm_handler.format_search_term_prompt(part_info)`
-        *   Get the LLM response: `llm_response_terms = llm_handler.get_llm_response(search_prompt)`
-        *   Parse the terms: `search_terms = llm_handler.parse_search_terms(llm_response_terms)`
-        *   Check if `search_terms` is empty. If it is, log a warning (`logger.warning(...)`) indicating no search terms were generated for this item and set `status = 'search_term_failed'`.
-    *   Inside the `except` block:
-        *   Log the error: `logger.error(f"LLM error generating search terms for item {bom_item.bom_item_id}: {e}")`
-        *   Set `status = 'search_term_failed'`
+The table should have the following columns:
+- `cache_id`: SERIAL PRIMARY KEY
+- `search_term`: TEXT, NOT NULL
+- `search_type`: VARCHAR(50), NOT NULL (e.g., 'keyword', 'mpn')
+- `response_data`: JSONB (stores the raw JSON response from Mouser)
+- `cached_at`: TIMESTAMP WITH TIME ZONE, NOT NULL, DEFAULT CURRENT_TIMESTAMP
+
+After the existing index definitions, add two new indexes for this table:
+1. A unique index named `idx_mouser_cache_term_type` on (`search_term`, `search_type`).
+2. An index named `idx_mouser_cache_cached_at` on the `cached_at` column.
 ```
 
-**Prompt 3: Perform Mouser Keyword Search**
+---
+
+### Step 2: SQLAlchemy Model Definition
+
+**Context:** Create the Python representation of the database table using SQLAlchemy. This might involve creating a new `models.py` file.
+
+**LLM Prompt:**
 
 ```text
-Continuing in `pcb_part_finder/core/processor.py` inside the `for bom_item in bom_items:` loop, *after* the search term generation block:
-
-1.  Initialize `mouser_results = []` and `unique_mouser_part_numbers = set()`.
-2.  Add a conditional check: `if status == 'pending' and search_terms:`. All the following logic in this step should be inside this `if` block.
-3.  Loop through each `term` in `search_terms`.
-4.  Inside this term loop, add a `try...except MouserApiError as e:` block.
-    *   Inside the `try` block:
-        *   Call the Mouser API: `results = mouser_api.search_mouser_by_keyword(term)`
-        *   Iterate through the `results` list (each item is a potential part dictionary).
-        *   For each `part` in `results`:
-            *   Get the `MouserPartNumber`.
-            *   If the `MouserPartNumber` is not `None` and not already in `unique_mouser_part_numbers`:
-                *   Add the `MouserPartNumber` to `unique_mouser_part_numbers`.
-                *   Append the `part` dictionary to the `mouser_results` list.
-    *   Inside the `except` block:
-        *   Log the error: `logger.error(f"Mouser API keyword search error for item {bom_item.bom_item_id}, term '{term}': {e}")`
-        *   (Optionally, you could `continue` to the next term, or break; for now, just logging is fine).
-5.  After the term loop (still inside the main `if status == 'pending' and search_terms:` block), check if `mouser_results` is empty. If it is, log a warning (`logger.warning(...)`) indicating no results were found for any search term for this item and set `status = 'no_keyword_results'`.
+1. Check if the file `pcb_part_finder/core/models.py` exists. If not, create it.
+2. Ensure the file imports necessary components: `Column`, `Integer`, `String`, `TIMESTAMP` from `sqlalchemy`, and `JSONB` from `sqlalchemy.dialects.postgresql`.
+3. Also, ensure it imports or defines a SQLAlchemy `declarative_base`. Assume a base named `Base` is available, potentially imported from `pcb_part_finder.core.database` if that's where SQLAlchemy setup resides, otherwise define `Base = declarative_base()`.
+4. Define a new SQLAlchemy model class `MouserApiCache` that inherits from `Base`.
+5. Set the `__tablename__` attribute to `'mouser_api_cache'`.
+6. Define class attributes corresponding to the table columns created in `init.sql` in Step 1, using the appropriate SQLAlchemy types:
+    - `cache_id`: `Column(Integer, primary_key=True)`
+    - `search_term`: `Column(String, nullable=False)`
+    - `search_type`: `Column(String(50), nullable=False)`
+    - `response_data`: `Column(JSONB)`
+    - `cached_at`: `Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())` (Requires importing `func` from `sqlalchemy.sql`).
+7. Include necessary table arguments for the indexes defined in Step 1: `Index('idx_mouser_cache_term_type', 'search_term', 'search_type', unique=True)` and `Index('idx_mouser_cache_cached_at', 'cached_at')`. (Requires importing `Index` from `sqlalchemy`).
 ```
 
-**Prompt 4: Evaluate Search Results**
+---
+
+### Step 3: Cache Manager Class Structure
+
+**Context:** Create the file and class structure for the cache manager, defining methods but leaving implementation for the next steps.
+
+**LLM Prompt:**
 
 ```text
-Continuing in `pcb_part_finder/core/processor.py` inside the `for bom_item in bom_items:` loop, *after* the Mouser keyword search block:
-
-1.  Initialize `chosen_mpn = None`.
-2.  Add a conditional check: `if status == 'pending' and mouser_results:`. All the following logic in this step should be inside this `if` block.
-3.  Add a `try...except LlmApiError as e:` block.
-    *   Inside the `try` block:
-        *   Format the evaluation prompt: `eval_prompt = llm_handler.format_evaluation_prompt(part_info, project.project_notes, selected_part_details, mouser_results)` (Make sure `project` is available; it's returned by `load_project_data_from_db`).
-        *   Get the LLM response: `llm_response_eval = llm_handler.get_llm_response(eval_prompt)`
-        *   Extract the MPN: `chosen_mpn = llm_handler.extract_mpn_from_eval(llm_response_eval)`
-        *   Check if `chosen_mpn` is `None`. If it is, log a warning (`logger.warning(...)`) indicating the LLM failed to select an MPN for this item and set `status = 'evaluation_failed'`.
-    *   Inside the `except` block:
-        *   Log the error: `logger.error(f"LLM error evaluating search results for item {bom_item.bom_item_id}: {e}")`
-        *   Set `status = 'evaluation_failed'`
+1. Create a new file named `pcb_part_finder/core/cache_manager.py`.
+2. Add the necessary imports at the top:
+   - `from datetime import datetime, timedelta, timezone`
+   - `from typing import Optional, Dict, Any`
+   - `from sqlalchemy.orm import Session`
+   - `from .models import MouserApiCache` # Assumes models.py is in the same directory
+3. Define a class named `MouserApiCacheManager`.
+4. Define the `__init__` method (it can be empty for now: `pass`).
+5. Define the method signature for getting cached data:
+   `get_cached_response(self, search_term: str, search_type: str, db: Session, max_age_seconds: int = 86400) -> Optional[Dict[str, Any]]:`
+   - Add a docstring explaining its purpose (checks cache, returns parsed JSON data or None).
+   - Use `pass` as the method body for now.
+6. Define the method signature for saving data to the cache:
+   `cache_response(self, search_term: str, search_type: str, response_data: Dict[str, Any], db: Session) -> None:`
+   - Add a docstring explaining its purpose (saves raw response data to cache).
+   - Use `pass` as the method body for now.
 ```
 
-**Prompt 5: Get Final Part Details**
+---
+
+### Step 4: Implement Cache Retrieval Logic
+
+**Context:** Fill in the logic for the `get_cached_response` method in the cache manager.
+
+**LLM Prompt:**
 
 ```text
-Continuing in `pcb_part_finder/core/processor.py` inside the `for bom_item in bom_items:` loop, *after* the LLM evaluation block:
+Modify the `pcb_part_finder/core/cache_manager.py` file. Implement the body of the `get_cached_response` method within the `MouserApiCacheManager` class.
 
-1.  Initialize `final_part_details = None`.
-2.  Add a conditional check: `if status == 'pending' and chosen_mpn:`. All the following logic in this step should be inside this `if` block.
-3.  Add a `try...except MouserApiError as e:` block.
-    *   Inside the `try` block:
-        *   Call the Mouser API: `final_part_details = mouser_api.search_mouser_by_mpn(chosen_mpn)`
-        *   Check if `final_part_details` is `None`. If it is, log a warning (`logger.warning(...)`) indicating the chosen MPN was not found via the MPN search API for this item and set `status = 'mpn_lookup_failed'`.
-        *   If `final_part_details` is not `None`, set `status = 'matched'`.
-    *   Inside the `except` block:
-        *   Log the error: `logger.error(f"Mouser API MPN search error for item {bom_item.bom_item_id}, MPN '{chosen_mpn}': {e}")`
-        *   Set `status = 'mpn_lookup_failed'`
+The logic should perform the following:
+1. Calculate the oldest acceptable timestamp (`datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)`).
+2. Query the `MouserApiCache` model using the provided `db` session.
+3. Filter the query:
+   - `MouserApiCache.search_term == search_term`
+   - `MouserApiCache.search_type == search_type`
+   - `MouserApiCache.cached_at >= oldest_acceptable_timestamp`
+4. Order the results by `MouserApiCache.cached_at` descending (`.order_by(MouserApiCache.cached_at.desc())`).
+5. Get the first result (`.first()`).
+6. If a result is found:
+   - Return the `result.response_data` (which should already be a Python dict/list due to JSONB).
+7. If no result is found or any exception occurs during the query, return `None`. Include basic error logging if an exception occurs.
 ```
 
-**Prompt 6: Format and Store Result**
+---
+
+### Step 5: Implement Cache Storage Logic
+
+**Context:** Fill in the logic for the `cache_response` method in the cache manager.
+
+**LLM Prompt:**
 
 ```text
-Continuing in `pcb_part_finder/core/processor.py` inside the `for bom_item in bom_items:` loop, *after* fetching final part details:
+Modify the `pcb_part_finder/core/cache_manager.py` file. Implement the body of the `cache_response` method within the `MouserApiCacheManager` class.
 
-1.  Initialize `match_data = {}`.
-2.  Use `if/elif/else` based on the `status` variable to populate `match_data`:
-    *   `if status == 'matched' and final_part_details:`
-        *   Populate `match_data` using the keys from `final_part_details` returned by `search_mouser_by_mpn`. The keys expected by `save_bom_results_to_db` (based on its Component model creation) are: `'mouser_part_number'`, `'manufacturer_name'`, `'description'`, `'datasheet_url'`, `'price'`, `'availability'`. Map the values from `final_part_details` accordingly. Ensure the key names match what `save_bom_results_to_db` uses when creating/querying the `Component` (e.g., use 'manufacturer_name' not 'manufacturer').
-        *   Add `'match_status': status` to `match_data`.
-        *   Append a dictionary `{'Description': bom_item.description, 'Manufacturer Part Number': final_part_details.get('Manufacturer Part Number')}` to the `selected_part_details` list.
-    *   `elif status == 'mpn_lookup_failed':`
-        *   Set `match_data = {'match_status': status, 'possible_mpn': chosen_mpn or part_info.get('Possible MPN', '')}` (Include other fields as empty/None if needed by the saving function).
-    *   `elif status == 'evaluation_failed':`
-        *   Set `match_data = {'match_status': status}`
-    *   `elif status == 'no_keyword_results':`
-        *   Set `match_data = {'match_status': status}`
-    *   `elif status == 'search_term_failed':`
-        *   Set `match_data = {'match_status': status}`
-    *   `else:` (Handle any unexpected status or default to 'error')
-        *   Set `match_data = {'match_status': 'error'}`
-3.  Create the `item_data` dictionary:
-    ```python
-    item_data = {
-        'bom_item_id': bom_item.bom_item_id,
-        'quantity': bom_item.quantity,
-        'description': bom_item.description,
-        'matches': [match_data] # Wrap match_data in a list
-    }
-    ```
-4.  Append `item_data` to the `bom_items_with_matches` list.
+The logic should perform the following:
+1. Create a new instance of the `MouserApiCache` model.
+2. Populate its attributes: `search_term`, `search_type`, and `response_data` using the method arguments. `cached_at` will be set by the database default.
+3. Use a `try...except...finally` block for database operations:
+   - **Try:**
+     - Add the new `MouserApiCache` instance to the session (`db.add(new_cache_entry)`).
+     - Commit the session (`db.commit()`).
+   - **Except:**
+     - Catch potential database errors (e.g., `Exception as e`).
+     - Log the error (e.g., `print(f"Error caching response: {e}")`).
+     - Roll back the session (`db.rollback()`).
+   - **Finally:**
+     - This block is optional here but good practice if resources needed cleanup.
 ```
 
-**Prompt 7: Final Integration and Review**
+---
+
+### Step 6: Integrate Cache into `search_mouser_by_mpn`
+
+**Context:** Modify the first Mouser API function to use the cache manager for getting and setting cache data.
+
+**LLM Prompt:**
 
 ```text
-Final checks for `pcb_part_finder/core/processor.py`:
+Modify the `pcb_part_finder/core/mouser_api.py` file. Refactor the `search_mouser_by_mpn` function:
 
-1.  Ensure the `for bom_item in bom_items:` loop correctly iterates through all items, and the logic from steps 2-6 is contained within this loop.
-2.  Verify that the `save_bom_results_to_db(project_id, bom_items_with_matches, db)` call happens *after* the loop finishes.
-3.  Make sure the `project` variable (containing `project_notes`) is correctly accessed within the loop (it's returned alongside `bom_items` from `load_project_data_from_db`).
-4.  Review all logging messages (`logger.error`, `logger.warning`, `logger.info`) for clarity and appropriateness. Ensure necessary details like `bom_item_id` are included in logs.
-5.  Confirm that the `status` variable correctly tracks the outcome for each item throughout the steps and determines the final `match_data` structure.
-6. Add necessary default values (like empty strings or None) to `match_data` for failure statuses if `save_bom_results_to_db` requires certain keys to always be present, even if empty. Check the `output_writer.py` `save_bom_results_to_db` function's handling of `match_data` keys when creating `Component` and `BomItemMatch` to ensure compatibility.
+1.  Add two new parameters to the function signature: `cache_manager: 'MouserApiCacheManager'` and `db: Session`. (You'll need `from pcb_part_finder.core.cache_manager import MouserApiCacheManager` and `from sqlalchemy.orm import Session`). Use a forward reference `'MouserApiCacheManager'` in the type hint if needed to avoid circular imports, although importing directly should be fine if `cache_manager.py` doesn't import from `mouser_api.py`. Also add `from datetime import datetime` if needed for timestamp comparisons later.
+2.  **Cache Check:**
+    *   At the beginning of the function, call `cached_data = cache_manager.get_cached_response(search_term=mpn, search_type='mpn', db=db)`.
+    *   If `cached_data` is not `None`:
+        *   Replicate the parsing logic that happens *after* a successful API call within this function (extracting Mouser Part Number, MPN, Manufacturer, Description, Datasheet URL, Price, Availability from the `cached_data`). This involves accessing keys like 'SearchResults', 'Parts', iterating if necessary (though MPN search usually returns one part), handling 'PriceBreaks', and 'AvailabilityInStock'/'LeadTime'.
+        *   Return the formatted dictionary containing the parsed part details.
+3.  **API Call & Cache Write:**
+    *   If `cached_data` *is* `None`, proceed with the existing logic to prepare the API request payload and headers.
+    *   Inside the `try` block for the `requests.post` call:
+        *   After a successful response (`response.status_code == 200`) and *before* parsing the JSON:
+            *   Get the raw JSON: `raw_response_data = response.json()`.
+            *   Check if `raw_response_data` contains API-level errors (`'Errors'` key).
+            *   If **no** API-level errors: Call `cache_manager.cache_response(search_term=mpn, search_type='mpn', response_data=raw_response_data, db=db)`. Handle potential exceptions from caching gracefully (e.g., log but don't fail the main API call).
+        *   **Important:** Continue the existing logic to parse the `raw_response_data` (which you just potentially cached) to extract the required fields and return the formatted dictionary. Ensure this parsing logic is the *same* as the one used for the cache hit path.
+4.  Ensure the rest of the error handling (API errors, network errors) remains the same. Only cache successful responses without API-level errors.
 ```
 
-These prompts break the task into manageable chunks, building the desired functionality incrementally within `processor.py`. Each prompt builds on the previous one, leading to the final integrated solution.
+---
+
+### Step 7: Integrate Cache into `search_mouser_by_keyword`
+
+**Context:** Modify the second Mouser API function similarly.
+
+**LLM Prompt:**
+
+```text
+Modify the `pcb_part_finder/core/mouser_api.py` file. Refactor the `search_mouser_by_keyword` function:
+
+1.  Add the same two parameters as in Step 6: `cache_manager: 'MouserApiCacheManager'` and `db: Session`. Ensure necessary imports are present.
+2.  **Cache Check:**
+    *   At the beginning of the function, call `cached_data = cache_manager.get_cached_response(search_term=keyword, search_type='keyword', db=db)`.
+    *   If `cached_data` is not `None`:
+        *   This function expects to return a list of parts directly from the 'Parts' key. Extract this list: `parts = cached_data.get('SearchResults', {}).get('Parts', [])`.
+        *   Return `parts` if it's not empty, otherwise return an empty list `[]`.
+3.  **API Call & Cache Write:**
+    *   If `cached_data` *is* `None`, proceed with the existing logic for the API call.
+    *   Inside the `try` block for `requests.post`:
+        *   After a successful response (`response.status_code == 200`) and *before* parsing:
+            *   Get the raw JSON: `raw_response_data = response.json()`.
+            *   Check for API-level errors (`'Errors'` key).
+            *   If **no** API-level errors: Call `cache_manager.cache_response(search_term=keyword, search_type='keyword', response_data=raw_response_data, db=db)`. Handle potential exceptions gracefully.
+        *   **Important:** Continue the existing logic to parse `raw_response_data`: extract the `parts` list (`raw_response_data.get('SearchResults', {}).get('Parts', [])`) and return it (or `[]`). Ensure this parsing logic is the same as for the cache hit path.
+4.  Maintain existing error handling. Only cache successful responses without API-level errors.
+```
+
+---
+
+### Step 8: Wire Dependencies in API Endpoints
+
+**Context:** Update the API endpoints that use the Mouser search functions to provide the database session and the cache manager instance. This requires identifying the relevant endpoint file(s) first.
+
+**LLM Prompt:**
+
+```text
+1.  **Identify:** Locate the Python file(s) containing the FastAPI endpoints that call `search_mouser_by_mpn` or `search_mouser_by_keyword`. Let's assume it's `pcb_part_finder/api/main.py` for this example.
+2.  **Import necessary modules:** In `pcb_part_finder/api/main.py`, ensure these imports are present:
+    *   `from sqlalchemy.orm import Session`
+    *   `from fastapi import Depends, FastAPI, HTTPException` (or APIRouter)
+    *   `from pcb_part_finder.core.database import get_db`
+    *   `from pcb_part_finder.core.mouser_api import search_mouser_by_mpn, search_mouser_by_keyword, MouserApiError`
+    *   `from pcb_part_finder.core.cache_manager import MouserApiCacheManager`
+3.  **Instantiate Cache Manager:** Create a module-level instance of the cache manager near the top of the file (after imports):
+    `mouser_cache_manager = MouserApiCacheManager()`
+4.  **Modify Endpoints:** For *each* endpoint function that calls either `search_mouser_by_mpn` or `search_mouser_by_keyword`:
+    *   Add `db: Session = Depends(get_db)` to its parameters if not already present.
+    *   Update the call to the Mouser search function (e.g., `search_mouser_by_mpn(...)`) to pass the required `cache_manager` and `db` arguments:
+        *   `result = search_mouser_by_mpn(mpn=..., cache_manager=mouser_cache_manager, db=db)`
+        *   `results = search_mouser_by_keyword(keyword=..., records=..., cache_manager=mouser_cache_manager, db=db)`
+5.  Ensure error handling in the endpoint (e.g., catching `MouserApiError` and raising `HTTPException`) remains appropriate.
+```
+
+---
+
+This step-by-step approach with corresponding prompts provides a clear path to implement the caching feature incrementally, integrating each piece before moving to the next.

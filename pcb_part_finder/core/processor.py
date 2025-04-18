@@ -19,6 +19,7 @@ from . import llm_handler
 from . import mouser_api
 from .llm_handler import LlmApiError
 from .mouser_api import MouserApiError
+from .cache_manager import MouserApiCacheManager # Added
 
 # Configure logging
 logging.basicConfig(
@@ -26,6 +27,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Instantiate the cache manager at the module level
+mouser_cache_manager = MouserApiCacheManager()
 
 def process_project_from_db(project_id: str, db: Session) -> bool:
     """
@@ -84,7 +88,13 @@ def process_project_from_db(project_id: str, db: Session) -> bool:
                 # Step 3: Perform Mouser Keyword Search
                 if status == 'pending' and search_terms:
                     for term in search_terms:
-                        results = mouser_api.search_mouser_by_keyword(term)
+                        # Pass cache manager and db session
+                        results = mouser_api.search_mouser_by_keyword(
+                            keyword=term, 
+                            cache_manager=mouser_cache_manager, 
+                            db=db
+                            # records parameter uses default if not specified
+                        )
                         for part in results:
                             mouser_part_number = part.get('MouserPartNumber')
                             if mouser_part_number and mouser_part_number not in unique_mouser_part_numbers:
@@ -116,7 +126,12 @@ def process_project_from_db(project_id: str, db: Session) -> bool:
                     else:
                         # If not in DB, call Mouser API
                         logger.info(f"MPN {chosen_mpn} not found in DB, querying Mouser...")
-                        final_part_details = mouser_api.search_mouser_by_mpn(chosen_mpn)
+                        # Pass cache manager and db session
+                        final_part_details = mouser_api.search_mouser_by_mpn(
+                            mpn=chosen_mpn, 
+                            cache_manager=mouser_cache_manager, 
+                            db=db
+                        )
                         if final_part_details:
                             # Found via Mouser API, now get/create the component record in DB
                             component_data = {
@@ -152,7 +167,6 @@ def process_project_from_db(project_id: str, db: Session) -> bool:
             except Exception as item_err: # Catch unexpected errors for this item
                 logger.error(f"Unexpected error processing item {bom_item.bom_item_id}: {item_err}", exc_info=True)
                 status = 'processing_error'
-            e
             # Step 6: Format and Store Result (Progressively)
             # --- Start DB interaction for this item ---
             try:

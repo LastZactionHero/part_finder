@@ -41,10 +41,21 @@ CREATE TABLE bom_item_matches (
     matched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE mouser_api_cache (
+    cache_id SERIAL PRIMARY KEY,
+    search_term TEXT NOT NULL,
+    search_type VARCHAR(50) NOT NULL, -- e.g., 'keyword', 'mpn'
+    response_data JSONB, -- stores the raw JSON response from Mouser
+    cached_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for better performance
 CREATE INDEX idx_projects_status ON projects(status);
 CREATE INDEX idx_bom_items_project_id ON bom_items(project_id);
 CREATE INDEX idx_components_mouser_part_number ON components(mouser_part_number);
 CREATE INDEX idx_components_manufacturer_part_number ON components(manufacturer_part_number);
 CREATE INDEX idx_bom_item_matches_bom_item_id ON bom_item_matches(bom_item_id);
-CREATE INDEX idx_bom_item_matches_component_id ON bom_item_matches(component_id); 
+CREATE INDEX idx_bom_item_matches_component_id ON bom_item_matches(component_id);
+
+CREATE UNIQUE INDEX idx_mouser_cache_term_type ON mouser_api_cache (search_term, search_type);
+CREATE INDEX idx_mouser_cache_cached_at ON mouser_api_cache (cached_at); 

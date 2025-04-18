@@ -76,6 +76,15 @@ Remove all docker images:
 
 `docker system prune -a --volumes`
 
+docker image prune -a
+docker image prune -a -f
+
+docker stop $(docker ps -aq)
+docker rm $(docker ps -aq)
+docker image prune -a -f
+docker volume prune -f
+docker volume rm part_finder_postgres_data
+
 The test suite includes:
 - Data loader tests (`test_data_loader.py`)
 - Mouser API tests (`test_mouser_api.py`)
