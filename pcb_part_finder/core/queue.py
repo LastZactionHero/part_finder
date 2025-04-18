@@ -74,36 +74,25 @@ def process_queue():
                 db.close()
             
             # Process the project
-            success = False
             try:
                 # Process the project using the new database-based processor
-                success = process_project_from_db(project_id=project_id, db=db)
+                # process_project_from_db now handles its own final status update
+                # and returns True if orchestration succeeded, False if setup failed.
+                orchestration_succeeded = process_project_from_db(project_id=project_id)
+                if not orchestration_succeeded:
+                    # The processor already logged the fatal setup error and set status to 'error'
+                    logger.error(f"Processing setup failed for project {project_id}. Status should be 'error'.")
+                # No further status update needed here; processor handles 'completed',
+                # 'completed_with_errors', and fatal 'error' statuses.
                 
             except Exception as e:
-                logger.error(f"Error processing project {project_id}: {str(e)}")
-                success = False
-                
-            finally:
-                # Update project status based on processing outcome
-                db = SessionLocal()
-                try:
-                    project = db.query(Project).filter(
-                        Project.project_id == project_id
-                    ).first()
-                    
-                    if project:
-                        project.status = 'finished' if success else 'failed'
-                        project.end_time = datetime.now()
-                        db.commit()
-                        logger.info(f"Updated project {project_id} status to {project.status}")
-                    else:
-                        logger.error(f"Project {project_id} not found when updating status")
-                        
-                finally:
-                    db.close()
-            
+                # This catches exceptions *outside* of process_project_from_db's main try/except
+                # This shouldn't normally happen if process_project_from_db handles its errors,
+                # but log it just in case. The project status might be left as 'processing'.
+                logger.critical(f"Unexpected error in queue runner *after* calling processor for {project_id}: {e}", exc_info=True)
+
         except Exception as e:
-            logger.error(f"Error in queue processing: {str(e)}")
+            logger.error(f"Error in queue processing loop: {e}", exc_info=True) # Log full traceback
             time.sleep(60)  # Wait before retrying
 
 if __name__ == "__main__":
