@@ -120,46 +120,42 @@ def format_product_attribute(attr: Dict[str, Any]) -> str:
     value = attr.get('AttributeValue', '')
     return f"{name}: {value}"
 
-def format_evaluation_prompt(part_info: Dict[str, str], project_notes: str, selected_parts: List[Dict[str, str]], mouser_results: List[Dict[str, Any]]) -> str:
+def format_evaluation_prompt(part_info: Dict[str, str], project_notes: str, bom_list: List[Dict[str, str]], mouser_results: List[Dict[str, Any]]) -> str:
     """
     Format the prompt for evaluating Mouser search results.
     
     Args:
-        part_info: Dictionary containing part information from the input CSV
-        project_notes: Content of the project notes file
-        selected_parts: List of previously selected parts
-        mouser_results: List of Mouser search results
+        part_info: Dictionary containing part information from the input CSV for the current part.
+        project_notes: Content of the project notes file.
+        bom_list: List of all parts in the original Bill of Materials (BOM).
+        mouser_results: List of Mouser search results for the current part.
         
     Returns:
         Formatted prompt string
     """
-    print("Here!")
-    print(selected_parts)
-    # Format selected parts
-    selected_parts_str = "\n".join([
-        f"{part['Description']}: {part['Manufacturer Part Number']}"
-        for part in selected_parts
-    ]) if selected_parts else "None"
-    print("Here2!")
+    # Format the original BOM list
+    # Show Description, Package, and Possible MPN for context
+    bom_list_str = "\n".join([
+        f"- {part.get('Description', 'N/A')} (Package: {part.get('Package', 'N/A')}, MPN: {part.get('Possible MPN', 'N/A')})"
+        for part in bom_list
+    ]) if bom_list else "None"
 
-    print(mouser_results[0])
     # Format Mouser results
     mouser_results_str = "\n\n".join([
         f"Manufacturer: {part.get('Manufacturer', 'N/A')}\n"
         f"Manufacturer Part Number: {part.get('ManufacturerPartNumber', 'N/A')}\n"
         f"Mouser Part Number: {part.get('MouserPartNumber', 'N/A')}\n"
         f"Description: {part.get('Description', 'N/A')}\n"
-        f"Price: {part.get('Price', 'N/A')}\n" 
+        f"Price: {part.get('Price', 'N/A')}\n"
         f"Availability: {part.get('Availability', 'N/A')}\n"
         f"Datasheet URL: {part.get('DataSheetUrl', 'N/A')}\n"
         f"Product Attributes: N/A"
         for part in mouser_results
     ])
-    print("There!")
     
-    return f"""Here is a list of potential parts from Mouser for the original part described below. Your task is to evaluate this list and select the single best part that matches the requirements and context provided.
+    return f"""Here is a list of potential parts from Mouser for the original part described below. Your task is to evaluate this list and select the single best part that matches the requirements and context provided. Consider the other parts in the project listed in the BOM.
 
-Original Part Details:
+Original Part Details (Currently Evaluating):
 Quantity: {part_info.get('Qty', '')}
 Description: {part_info.get('Description', '')}
 Possible MPN: {part_info.get('Possible MPN', '')}
@@ -169,13 +165,13 @@ Notes/Source: {part_info.get('Notes/Source', '')}
 Project Notes:
 {project_notes}
 
-Previously Selected Parts:
-{selected_parts_str}
+Original Bill of Materials (BOM):
+{bom_list_str}
 
 Mouser Search Results:
 {mouser_results_str}
 
-When evaluating the Mouser parts, prioritize parts that are currently in stock or have a short lead time. The most important factor is that the selected part closely matches the requirements and specifications mentioned in the 'Notes/Source' field provided for the original part. Favor parts with readily available datasheets. Consider the manufacturer if project preferences are indicated in the 'Project Notes' or 'Previously Selected Parts'. While important, price should be a secondary consideration after availability and functional suitability are established. Ensure the specifications and package of the selected part are compatible with the original requirement.
+When evaluating the Mouser parts, prioritize parts that are currently in stock or have a short lead time. The most important factor is that the selected part closely matches the requirements and specifications mentioned in the 'Notes/Source' field provided for the original part. Favor parts with readily available datasheets. Consider the manufacturer if project preferences are indicated in the 'Project Notes' or the overall 'Original Bill of Materials'. While important, price should be a secondary consideration after availability and functional suitability are established. Ensure the specifications and package of the selected part are compatible with the original requirement.
 
 Return your answer in the following format so it can be easily parsed. Use EXACTLY the Manufacturer Part Number as shown in the list above, do not add manufacturer name or any other text:
 [ManufacturerPartNumber:XXXXX]"""

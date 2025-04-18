@@ -41,7 +41,8 @@ mouser_cache_manager = MouserApiCacheManager()
 def _process_single_bom_item(
     bom_item: BomItem,
     project_description: str,
-    mouser_cache_manager: MouserApiCacheManager
+    mouser_cache_manager: MouserApiCacheManager,
+    full_bom_list: List[Dict[str, Any]] # Added argument for the full BOM list
     # Removed db_session_factory parameter
 ) -> str:
     """
@@ -56,6 +57,8 @@ def _process_single_bom_item(
         bom_item: The specific BomItem ORM object to process.
         project_description: The description of the parent project (for context).
         mouser_cache_manager: The shared MouserApiCacheManager instance.
+        full_bom_list: A list of dictionaries, each representing a part in the original BOM.
+            Used for providing context to the LLM evaluation prompt.
 
     Returns:
         str: A status string indicating the outcome (e.g., 'matched',
@@ -127,7 +130,10 @@ def _process_single_bom_item(
             if status == 'pending' and mouser_results:
                 try:
                     eval_prompt = llm_handler.format_evaluation_prompt(
-                        part_info, project_description, [], mouser_results # Pass empty list for selected_part_details
+                        part_info, 
+                        project_description, 
+                        full_bom_list, # Pass the full BOM list here
+                        mouser_results 
                     )
                     llm_response_eval = llm_handler.get_llm_response(eval_prompt)
                     chosen_mpn = llm_handler.extract_mpn_from_eval(llm_response_eval)
@@ -282,6 +288,16 @@ def process_project_from_db(
             failed_item_ids = []
             future_to_bom_item_id = {}
 
+            # Convert BomItem objects to simple dictionaries for passing to worker
+            # Include fields needed by the LLM prompt for the BOM list context
+            bom_list_as_dicts = [
+                {
+                    'Description': item.description or 'N/A',
+                    'Package': item.package or 'N/A',
+                    'Possible MPN': item.notes or 'N/A' # Assuming notes field holds input MPN
+                } for item in bom_items
+            ]
+
             # Use ThreadPoolExecutor for concurrent processing
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit tasks for each BOM item
@@ -291,7 +307,8 @@ def process_project_from_db(
                         _process_single_bom_item,
                         bom_item,
                         project.description,
-                        mouser_cache_manager # Pass the shared cache manager
+                        mouser_cache_manager, # Pass the shared cache manager
+                        bom_list_as_dicts # Pass the converted full BOM list
                     )
                     future_to_bom_item_id[future] = bom_item.bom_item_id
 
