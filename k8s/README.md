@@ -57,6 +57,125 @@ The benefit of these scripts is that they:
 - Reduce the chance of mistakes
 - Wait for services to be ready before completing
 
+## Local Development Workflow Details
+
+While `local-deploy.sh` handles the initial setup and basic updates, here's a breakdown of common tasks you might perform during local development:
+
+### Applying Local Code Changes
+
+When you modify the code (e.g., changing a Python file in the API or a Javascript file in the web frontend):
+
+1.  **Run the deploy script:** This is the primary way to get your changes into the local cluster.
+    ```bash
+    ./k8s/local-deploy.sh
+    ```
+    This script should:
+    *   Rebuild the relevant Docker image (e.g., `part-finder-web:local`) with your latest code.
+    *   Apply the Kubernetes manifests (`k8s/*.yaml`), which *should* trigger an update if the deployment detects a change.
+
+2.  **Force a Deployment Restart (If Necessary):** Sometimes, Kubernetes might not automatically roll out the changes, especially if you're using a static tag like `:local` for your images. If you run `local-deploy.sh` and don't see your changes reflected (after clearing browser cache for frontend changes), you can force the relevant deployment (e.g., `web` or `api`) to restart its pods:
+    ```bash
+    # Force restart for the web deployment
+    kubectl rollout restart deployment/web -n part-finder
+
+    # Force restart for the api deployment
+    kubectl rollout restart deployment/api -n part-finder
+    ```
+    This command tells Kubernetes to terminate the existing pods and create new ones, ensuring they pull the latest version of the `*:local` image that `local-deploy.sh` just built.
+
+### Checking Status
+
+To see the state of your application components within the `part-finder` namespace:
+
+*   **List all pods:** See if they are `Running`, `Pending`, `Error`, or `CrashLoopBackOff`.
+    ```bash
+    kubectl get pods -n part-finder
+    ```
+*   **List deployments:** Check if the desired number of replicas are available.
+    ```bash
+    kubectl get deployments -n part-finder
+    ```
+*   **List services:** See the internal cluster IPs and ports.
+    ```bash
+    kubectl get services -n part-finder
+    ```
+*   **Get detailed info on a specific pod:** Useful for troubleshooting pod startup issues.
+    ```bash
+    kubectl describe pod <pod-name> -n part-finder
+    ```
+    Replace `<pod-name>` with the actual name from `kubectl get pods`. Look at the `Events` section at the bottom for clues.
+
+### Reading Logs
+
+To view the real-time logs from a specific component:
+
+*   **Web Frontend Logs:**
+    ```bash
+    # First find the web pod name
+    kubectl get pods -n part-finder | grep web
+
+    # Then stream its logs (replace <web-pod-name>)
+    kubectl logs -f <web-pod-name> -n part-finder
+    ```
+*   **API Backend Logs:**
+    ```bash
+    # First find the api pod name
+    kubectl get pods -n part-finder | grep api
+
+    # Then stream its logs (replace <api-pod-name>)
+    kubectl logs -f <api-pod-name> -n part-finder
+    ```
+*   **Database Logs:**
+    ```bash
+    # First find the postgres pod name
+    kubectl get pods -n part-finder | grep postgres
+
+    # Then stream its logs (replace <postgres-pod-name>)
+    kubectl logs -f <postgres-pod-name> -n part-finder
+    ```
+    The `-f` flag follows the log output. Press `Ctrl+C` to stop streaming.
+
+### Accessing the Web Frontend Locally
+
+The `local-deploy.sh` script usually attempts to set up access. If not, or if you need to re-establish it, use port-forwarding:
+
+```bash
+kubectl port-forward service/web 3000:80 -n part-finder
+```
+
+Then access the application at `http://localhost:3000` in your browser. This command runs in the foreground, so you'll need to keep that terminal open or run it in the background.
+
+### Stopping the Local Environment
+
+To stop the application and remove all related Kubernetes resources:
+
+1.  **Delete all resources defined in the k8s directory:**
+    ```bash
+    # Make sure you are in the project root or specify the correct path
+    kubectl delete -f k8s/ -n part-finder
+    ```
+    This attempts to delete deployments, services, configmaps, secrets, etc., within the `part-finder` namespace based on your YAML files.
+
+2.  **Delete the namespace (Optional but cleaner):** This removes the namespace itself and everything inside it.
+    ```bash
+    kubectl delete namespace part-finder
+    ```
+
+### Starting Over (Clean Slate)
+
+If things get stuck or you want a completely fresh start:
+
+1.  **Delete the namespace:** This ensures all previous resources are gone.
+    ```bash
+    kubectl delete namespace part-finder
+    ```
+    *(Wait a few moments for termination to complete)*
+2.  **Run the local deployment script again:**
+    ```bash
+    ./k8s/local-deploy.sh
+    ```
+    This will recreate the namespace, rebuild images, and set everything up from scratch.
+
 ## What is Kubernetes?
 
 Kubernetes is a container orchestration platform that helps manage containerized applications. Think of it as an automated system administrator that:
