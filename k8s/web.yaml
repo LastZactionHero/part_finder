@@ -15,22 +15,32 @@ spec:
     spec:
       containers:
       - name: web
-        image: ${DOCKERHUB_USERNAME}/part-finder-web:${APP_VERSION}
+        image: us-central1-docker.pkg.dev/bompartfinder/part-finder-repo/web:latest
         ports:
         - containerPort: 3000
         envFrom:
         - configMapRef:
             name: part-finder-config
+        - secretRef:
+            name: part-finder-secrets
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: web
+  name: web-service
   namespace: part-finder
 spec:
   selector:
     app: web
   ports:
-  - port: 80
+  - protocol: TCP
+    port: 80
     targetPort: 3000
-  type: LoadBalancer 
+  type: ClusterIP 

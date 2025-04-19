@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: part-finder-ingress
+  namespace: part-finder
+  annotations:
+    # Reference the managed certificate created above
+    networking.gke.io/managed-certificates: bompartfinder-certificate
+    # The following annotation is deprecated and removed:
+    # kubernetes.io/ingress.class: "gke"
+    # Optional: Force redirect to HTTPS (recommended)
+    # kubernetes.io/ingress.allow-http: "false"
+spec:
+  ingressClassName: gke
+  rules:
+  - http:
+      paths:
+      - path: /* # Route all traffic
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: web-service # The name of your web Kubernetes Service
+            port:
+              number: 80 # The port your web Service listens on 

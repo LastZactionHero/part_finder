@@ -15,7 +15,6 @@ const resultsTableContainer = document.getElementById('resultsTableContainer'); 
 const resultsTable = document.getElementById('resultsTable').getElementsByTagName('tbody')[0];
 const queueLength = document.getElementById('queueLength');
 
-alert("hi!")
 // Update queue length
 async function updateQueueLength() {
     try {

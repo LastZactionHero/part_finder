@@ -62,4 +62,11 @@ if [ -z "$WEB_URL" ]; then
     echo "Then access the application at http://localhost:3000"
 else
     echo "Application is available at http://${WEB_URL}"
-fi 
+fi
+
+# Define Image URIs
+export PROJECT_ID=bompartfinder
+export REGION=us-central1 # Use the same region as your Artifact Registry repo
+export REPO=part-finder-repo
+export API_IMAGE_URI=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/api:latest
+export WEB_IMAGE_URI=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/web:latest 
