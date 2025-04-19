@@ -41,7 +41,7 @@
                 <textarea id="projectDescriptionInput" placeholder="Optional, but useful context for component matching" rows="2"></textarea>
                 <label for="componentInput">Enter Components (one per line):</label>
                 <p class="hint-text">
-                    <b>Feeling lazy?</b> Me too! Upload your BOM in any format. We'll reformat it through the ✨ magic of computers ✨.
+                    <b>Feeling lazy?</b> Me too! Upload your BOM in any format. We'll reformat it through the ✨ magic of computers ✨.<br/>Up to 20 components.
                 </p>
                 <textarea id="componentInput">Qty,Description,Possible MPN,Package,Notes/Source
 1,"ESP32 Wi-Fi/BT Module, 8MB Flash, 2MB PSRAM",ESP32-WROOM-32E-N8R2,RF_Module:ESP32-WROOM-32E,"Sufficient for MPN, SMT. Use Espressif KiCad Lib. Verify footprint."
@@ -49,6 +49,9 @@
 A very popular 3.3v LDO regulator.
 25 individual cherry mx keys that I can solder on for a custom keyboard
 6 0.1uf ceramic caps, 0805</textarea>
+                <p class="hint-text">
+                    <a href="https://www.bompartfinder.com/?project=39147983-9b6f-40a9-a93b-71b7e4a55722" target="_blank" rel="noopener noreferrer">See a Sample</a>
+                </p>
                 <button id="submitButton" disabled>Submit</button>
                 <div class="queue-info" id="queueInfoContainer">
                     <span id="queueLength">Loading Queue...</span>
