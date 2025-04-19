@@ -28,6 +28,7 @@ class MatchedComponent(BOMComponent):
 
 class MatchedBOM(BaseModel):
     """Schema for the matched BOM file."""
+    project_name: Optional[str] = Field(None, description="Project name")
     components: list[MatchedComponent] = Field(..., description="List of matched components")
     project_description: Optional[str] = Field(None, description="Project description")
     match_date: str = Field(..., description="ISO-8601 timestamp of when the match was performed")

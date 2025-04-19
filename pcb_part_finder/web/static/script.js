@@ -1,6 +1,6 @@
 // API base URL - use the exposed port on localhost
 const API_BASE_URL = 'https://api.bompartfinder.com';
-
+// const API_BASE_URL = 'http://localhost:8000';
 // DOM elements
 const componentInput = document.getElementById('componentInput');
 const projectNameInput = document.getElementById('projectNameInput');
@@ -105,6 +105,43 @@ function parseCSV(csv) {
     });
 
     return components;
+}
+
+// Convert component objects back to CSV string
+function convertToCSV(components) {
+    const headers = ['Qty', 'Description', 'Possible MPN', 'Package', 'Notes/Source'];
+    const headerLine = headers.join(',');
+
+    // Map API fields back to CSV headers
+    const fieldMapReverse = {
+        'qty': 'Qty',
+        'description': 'Description',
+        'possible_mpn': 'Possible MPN',
+        'package': 'Package',
+        'notes': 'Notes/Source'
+    };
+
+    // Function to escape CSV field if necessary
+    const escapeField = (field) => {
+        if (field === null || field === undefined) {
+            return '';
+        }
+        const str = String(field);
+        // Escape double quotes and wrap in quotes if it contains comma, newline, or double quote
+        if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+            return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+    };
+
+    const rows = components.map(component => {
+        return headers.map(header => {
+            const apiField = Object.keys(fieldMapReverse).find(key => fieldMapReverse[key] === header);
+            return escapeField(component[apiField]);
+        }).join(',');
+    });
+
+    return [headerLine, ...rows].join('\n');
 }
 
 // Create a new project
@@ -257,8 +294,7 @@ async function pollProjectStatus(projectId) {
         if (status.status === 'queued') {
             statusMessage.innerHTML = `
                 <div class="status-message">
-                    <p>Your project is in queue</p>
-                    <p>Position: ${status.position} of ${status.total_in_queue}</p>
+                    <p>Your project is ${status.position} of ${status.total_in_queue} in queue</p>
                 </div>
             `;
             // Hide results table while queued
@@ -300,6 +336,22 @@ async function pollProjectStatus(projectId) {
             submitButton.disabled = false;
             submitButton.textContent = 'Submit';
             queueInfoContainer.classList.remove('hidden'); // Show queue info
+
+            // Populate form fields with fetched data
+            if (status.bom) {
+                projectNameInput.value = status.bom.project_name || ''; // Handle missing name
+                projectDescriptionInput.value = status.bom.project_description || ''; // Handle missing description
+                if (status.bom.components && status.bom.components.length > 0) {
+                    componentInput.value = convertToCSV(status.bom.components);
+                } else {
+                    componentInput.value = ''; // Clear if no components
+                }
+            } else {
+                // Clear fields if bom data is missing
+                projectNameInput.value = '';
+                projectDescriptionInput.value = '';
+                componentInput.value = '';
+            }
         } else {
             statusMessage.innerHTML = `<div class="error">Unknown project status: ${status.status}</div>`;
             submitButton.disabled = false;
@@ -347,7 +399,7 @@ submitButton.addEventListener('click', async () => {
         submitButton.disabled = true;
         submitButton.textContent = 'Processing...';
         processingResultsSection.classList.remove('hidden'); // Show the main container
-        statusMessage.innerHTML = '<div class="status-message">Creating project...</div>';
+        statusMessage.innerHTML = '<div class="status-message">✨ Processing BOM... ✨</div>';
 
         const projectId = await createProject(projectName, projectDescription, components);
         window.history.pushState({}, '', `?project=${projectId}`);

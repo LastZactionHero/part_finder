@@ -296,7 +296,8 @@ async def get_project(
             components=matched_components,
             project_description=db_project.description,
             match_date=current_time_iso, # Indicate it's an in-progress snapshot
-            match_status=db_project.status # Keep 'processing' status
+            match_status=db_project.status, # Keep 'processing' status
+            project_name=db_project.name
         )
         
         return {
@@ -383,6 +384,7 @@ async def get_project(
         
         # Create MatchedBOM
         matched_bom = MatchedBOM(
+            project_name=db_project.name,
             components=matched_components,
             project_description=db_project.description,
             match_date=match_date,

@@ -13,8 +13,12 @@ from pcb_part_finder.core.cache_manager import MouserApiCacheManager  # Added
 
 # API base URL
 MOUSER_API_BASE_URL = "https://api.mouser.com/api/v1.0"
-# Delay between API requests in seconds
+# Delay between initial API requests in seconds
 API_REQUEST_DELAY = 0.5
+# Retry settings
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 10
+REQUEST_TIMEOUT = 15
 
 class MouserApiError(Exception):
     """Custom exception for Mouser API errors."""
@@ -34,13 +38,76 @@ def get_api_key() -> Optional[str]:
         raise MouserApiError("Mouser API key not found")
     return api_key
 
+def _make_mouser_request(
+    url: str,
+    headers: Dict[str, str],
+    payload: Dict[str, Any],
+    search_term: str, # For logging purposes
+    search_type: str  # For logging purposes
+) -> Dict[str, Any]:
+    """Makes a request to the Mouser API with retry logic."""
+    last_exception = None
+    for attempt in range(MAX_RETRIES + 1): # Initial attempt + retries
+        try:
+            # Add delay before making the request (except first attempt)
+            if attempt > 0:
+                logging.warning(f"Retrying Mouser API request for {search_type} '{search_term}'. Attempt {attempt}/{MAX_RETRIES}. Waiting {RETRY_DELAY_SECONDS}s.")
+                time.sleep(RETRY_DELAY_SECONDS)
+            else:
+                # Initial request delay
+                time.sleep(API_REQUEST_DELAY)
+
+            logging.debug(f"Making Mouser API {search_type} search request for '{search_term}' (Attempt {attempt+1})")
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=REQUEST_TIMEOUT
+            )
+            logging.debug(f"Mouser API response status code: {response.status_code} for {search_type} '{search_term}'")
+
+            if response.status_code == 200:
+                try:
+                    raw_response_data = response.json()
+                    logging.debug(f"Successfully received JSON response for {search_type} '{search_term}'")
+                    # Check for API-level errors before returning
+                    api_errors = raw_response_data.get('Errors', [])
+                    if api_errors:
+                        logging.error(f"Mouser API returned errors for {search_type} '{search_term}': {api_errors}")
+                        # Decide whether to retry based on error type, for now, raise immediately
+                        raise MouserApiError(f"Mouser API error for {search_type} '{search_term}': {api_errors}")
+                    return raw_response_data # Success
+                except json.JSONDecodeError as e:
+                    logging.error(f"Failed to decode JSON response for {search_type} '{search_term}': {e}")
+                    raise MouserApiError(f"Invalid JSON response from Mouser API: {e}")
+
+            elif response.status_code == 429:
+                logging.warning(f"Mouser API rate limit exceeded for {search_type} '{search_term}'.")
+                last_exception = MouserApiError("Mouser API rate limit exceeded")
+                # Continue to retry loop for rate limit errors
+
+            else:
+                logging.error(f"Mouser API request failed for {search_type} '{search_term}': {response.status_code} - {response.text}")
+                last_exception = MouserApiError(f"Mouser API request failed: {response.status_code} - {response.text}")
+                # Break retry loop for non-recoverable HTTP errors (like 400, 401, 404, 500 etc.)
+                break # Don't retry on definitive failures
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Network error during Mouser API request for {search_type} '{search_term}': {e}")
+            last_exception = MouserApiError(f"Network error during Mouser API request: {e}")
+            # Continue to retry loop for network errors
+
+    # If all retries failed
+    logging.error(f"Mouser API request failed after {MAX_RETRIES} retries for {search_type} '{search_term}'.")
+    raise last_exception if last_exception else MouserApiError(f"Mouser API request failed after multiple retries for {search_type} '{search_term}'.")
+
 def search_mouser_by_keyword(
     keyword: str,
     cache_manager: MouserApiCacheManager,
     db: Session,
     records: int = 10
 ) -> List[Dict[str, Any]]:
-    """Search for parts using a keyword, using cache."""
+    """Search for parts using a keyword, using cache and retry logic."""
     logging.debug(f"Initiating keyword search for: '{keyword}'")
     # --- Cache Check ---
     try:
@@ -53,19 +120,12 @@ def search_mouser_by_keyword(
             logging.debug(f"Returning {len(parts[:records])} parts from cache for keyword '{keyword}'")
             return parts[:records] if parts else []
     except Exception as e:
-        # Log cache read errors but continue to API call
         logging.warning(f"Cache read error for keyword '{keyword}': {e}. Proceeding with API call.")
 
     logging.info(f"Cache miss for keyword: {keyword}. Calling Mouser API.")
     # --- API Call ---
-    api_key = get_api_key()
-    if not api_key:
-        raise MouserApiError("Mouser API key not found")
+    api_key = get_api_key() # Raises MouserApiError if not found
 
-    # Add delay before making the request
-    time.sleep(API_REQUEST_DELAY)
-
-    logging.debug(f"Making Mouser API keyword search request for '{keyword}'")
     url = f"{MOUSER_API_BASE_URL}/search/keyword?apiKey={api_key}"
     headers = {
         'Content-Type': 'application/json',
@@ -82,56 +142,35 @@ def search_mouser_by_keyword(
     }
 
     try:
-        response = requests.post(
-            url,
+        # Use the new helper function for the request
+        raw_response_data = _make_mouser_request(
+            url=url,
             headers=headers,
-            json=payload,
-            timeout=15
+            payload=payload,
+            search_term=keyword,
+            search_type='keyword'
         )
-        logging.debug(f"Mouser API response status code: {response.status_code} for keyword '{keyword}'")
 
-        if response.status_code == 200:
-            try:
-                raw_response_data = response.json()
-                logging.debug(f"Successfully received JSON response for keyword '{keyword}'")
+        # --- Cache Write (only if successful API call without API errors) ---
+        try:
+            cache_manager.cache_response(
+                search_term=keyword,
+                search_type='keyword',
+                response_data=raw_response_data,
+                db=db
+            )
+        except (SQLAlchemyError, Exception) as cache_e:
+            logging.warning(f"Failed to cache response for keyword '{keyword}': {cache_e}")
 
-                # Check for API-level errors before caching
-                api_errors = raw_response_data.get('Errors', [])
-                if api_errors:
-                    logging.error(f"Mouser API returned errors for keyword '{keyword}': {api_errors}")
-                    # Raise error if API explicitly failed
-                    raise MouserApiError(f"Mouser API error for keyword '{keyword}': {api_errors}")
+        # --- Parse Response ---
+        parts = raw_response_data.get('SearchResults', {}).get('Parts', [])
+        logging.debug(f"Returning {len(parts)} parts from API for keyword '{keyword}'")
+        return parts if parts else []
 
-                # --- Cache Write (only if no API errors) ---
-                try:
-                    cache_manager.cache_response(
-                        search_term=keyword,
-                        search_type='keyword',
-                        response_data=raw_response_data,
-                        db=db
-                    )
-                except (SQLAlchemyError, Exception) as cache_e:
-                    # Log cache write errors but don't fail the main operation
-                    logging.warning(f"Failed to cache response for keyword '{keyword}': {cache_e}")
-
-                # --- Parse Response --- 
-                parts = raw_response_data.get('SearchResults', {}).get('Parts', [])
-                logging.debug(f"Returning {len(parts)} parts from API for keyword '{keyword}'")
-                return parts if parts else [] 
-
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to decode JSON response for keyword '{keyword}': {e}")
-                raise MouserApiError(f"Invalid JSON response from Mouser API: {e}")
-        elif response.status_code == 429:
-            logging.warning(f"Mouser API rate limit exceeded for keyword '{keyword}'")
-            raise MouserApiError("Mouser API rate limit exceeded")
-        else:
-            logging.error(f"Mouser API request failed for keyword '{keyword}': {response.status_code} - {response.text}")
-            raise MouserApiError(f"Mouser API request failed: {response.status_code} - {response.text}")
-
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Network error during Mouser API request for keyword '{keyword}': {e}")
-        raise MouserApiError(f"Network error during Mouser API request: {e}")
+    except MouserApiError as e:
+        # Log the final error after retries and re-raise or handle as needed
+        logging.error(f"Final error after retries for keyword '{keyword}': {e}")
+        raise # Re-raise the MouserApiError to be handled by the caller
 
 def _parse_mouser_part_data(part_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Helper function to parse raw part data from Mouser API response."""
@@ -176,7 +215,7 @@ def search_mouser_by_mpn(
     cache_manager: MouserApiCacheManager,
     db: Session
 ) -> Optional[Dict[str, Any]]:
-    """Search for a specific part by Manufacturer Part Number (MPN), using cache."""
+    """Search for a specific part by Manufacturer Part Number (MPN), using cache and retry logic."""
     logging.debug(f"Initiating MPN search for: '{mpn}'")
     # --- Cache Check ---
     try:
@@ -192,21 +231,16 @@ def search_mouser_by_mpn(
                 return parsed_data
             else:
                 logging.debug(f"Cache hit for MPN '{mpn}', but no parts found in cached data.")
+                # Cache hit with no results means the MPN likely doesn't exist on Mouser
+                # We might cache this "not found" state explicitly later if needed
                 return None
     except Exception as e:
-        # Log cache read errors but continue to API call
         logging.warning(f"Cache read error for MPN {mpn}: {e}. Proceeding with API call.")
 
     logging.info(f"Cache miss for MPN: {mpn}. Calling Mouser API.")
     # --- API Call ---
-    api_key = get_api_key()
-    if not api_key:
-        raise MouserApiError("Mouser API key not found")
+    api_key = get_api_key() # Raises MouserApiError if not found
 
-    # Add delay before making the request
-    time.sleep(API_REQUEST_DELAY)
-
-    logging.debug(f"Making Mouser API MPN search request for '{mpn}'")
     url = f"{MOUSER_API_BASE_URL}/search/keyword?apiKey={api_key}"
     headers = {
         'Content-Type': 'application/json',
@@ -223,64 +257,39 @@ def search_mouser_by_mpn(
     }
 
     try:
-        response = requests.post(
-            url,
+        # Use the new helper function for the request
+        raw_response_data = _make_mouser_request(
+            url=url,
             headers=headers,
-            json=payload,
-            timeout=15
+            payload=payload,
+            search_term=mpn,
+            search_type='mpn'
         )
-        logging.debug(f"Mouser API response status code: {response.status_code} for MPN '{mpn}'")
 
-        if response.status_code == 200:
-            try:
-                raw_response_data = response.json()
-                logging.debug(f"Successfully received JSON response for MPN '{mpn}'")
-
-                # Check for API-level errors before caching
-                api_errors = raw_response_data.get('Errors', [])
-                if api_errors:
-                    # Log the error but might still contain partial data, decide if needed
-                    logging.error(f"Mouser API returned errors for MPN {mpn}: {api_errors}")
-                    # Depending on requirements, you might still parse or return None/raise
-                    # For now, let's treat API errors as non-cacheable failure for this specific MPN search
-                    # If the API error structure indicates "not found", we might cache that fact later.
-                    # Raise error if API explicitly failed
-                    raise MouserApiError(f"Mouser API error for MPN {mpn}: {api_errors}")
+        # --- Cache Write (only if successful API call without API errors) ---
+        try:
+            cache_manager.cache_response(
+                search_term=mpn,
+                search_type='mpn',
+                response_data=raw_response_data,
+                db=db
+            )
+        except (SQLAlchemyError, Exception) as cache_e:
+            logging.warning(f"Failed to cache response for MPN {mpn}: {cache_e}")
 
 
-                # --- Cache Write (only if no API errors) ---
-                try:
-                    cache_manager.cache_response(
-                        search_term=mpn,
-                        search_type='mpn',
-                        response_data=raw_response_data,
-                        db=db
-                    )
-                except (SQLAlchemyError, Exception) as cache_e:
-                    # Log cache write errors but don't fail the main operation
-                    logging.warning(f"Failed to cache response for MPN {mpn}: {cache_e}")
+        # --- Parse Response ---
+        parts = raw_response_data.get('SearchResults', {}).get('Parts', [])
+        if not parts:
+            logging.debug(f"No parts found in API response for MPN '{mpn}' after API call")
+            # Consider caching the "not found" result here if needed
+            return None # MPN not found
 
+        parsed_data = _parse_mouser_part_data(parts[0])
+        logging.debug(f"Returning parsed data from API for MPN '{mpn}'")
+        return parsed_data
 
-                # --- Parse Response (using the same helper) ---
-                parts = raw_response_data.get('SearchResults', {}).get('Parts', [])
-                if not parts:
-                    logging.debug(f"No parts found in API response for MPN '{mpn}'")
-                    return None # MPN not found
-
-                parsed_data = _parse_mouser_part_data(parts[0])
-                logging.debug(f"Returning parsed data from API for MPN '{mpn}'")
-                return parsed_data
-
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to decode JSON response for MPN '{mpn}': {e}")
-                raise MouserApiError(f"Invalid JSON response from Mouser API: {e}")
-        elif response.status_code == 429:
-            logging.warning(f"Mouser API rate limit exceeded for MPN '{mpn}'")
-            raise MouserApiError("Mouser API rate limit exceeded")
-        else:
-            logging.error(f"Mouser API request failed for MPN '{mpn}': {response.status_code} - {response.text}")
-            raise MouserApiError(f"Mouser API request failed: {response.status_code} - {response.text}")
-
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Network error during Mouser API request for MPN '{mpn}': {e}")
-        raise MouserApiError(f"Network error during Mouser API request: {e}") 
+    except MouserApiError as e:
+        # Log the final error after retries and re-raise or handle as needed
+        logging.error(f"Final error after retries for MPN '{mpn}': {e}")
+        raise # Re-raise the MouserApiError to be handled by the caller 
