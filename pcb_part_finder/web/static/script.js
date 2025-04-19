@@ -1,5 +1,5 @@
 // API base URL - use the exposed port on localhost
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://api.bompartfinder.com';
 
 // DOM elements
 const componentInput = document.getElementById('componentInput');
