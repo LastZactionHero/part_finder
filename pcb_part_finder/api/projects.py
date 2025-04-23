@@ -8,8 +8,9 @@ import uuid
 import logging
 import json
 from pydantic import ValidationError
+from decimal import Decimal
 
-from ..schemas import InputBOM, MatchedBOM, MatchedComponent, BOMComponent
+from ..schemas import InputBOM, MatchedBOM, MatchedComponent, BOMComponent, PotentialMatch
 from ..db.crud import (
     create_project as crud_create_project,
     create_bom_item,
@@ -18,10 +19,15 @@ from ..db.crud import (
     get_queue_info,
     count_queued_projects,
     get_finished_project_data,
-    update_project_status
+    update_project_status,
+    get_potential_matches_for_bom_item,
+    get_component_by_mpn
 )
 from ..db.session import get_db
+from ..db.models import Component
 from ..core.llm_handler import get_llm_response, LlmApiError
+from ..core.mouser_api import search_mouser_by_mpn
+from ..core.cache_manager import MouserApiCacheManager
 
 router = APIRouter(prefix="/project", tags=["projects"])
 
@@ -209,13 +215,16 @@ async def get_project(
     """
     Get project details and BOM data.
     For queued projects, returns position in queue.
-    For finished projects, returns matched components.
+    For finished projects, returns matched components and potential matches.
     """
     # Get project from database
     db_project = get_project_by_id(db=db, project_id=project_id)
     if not db_project:
         raise HTTPException(status_code=404, detail="Project not found")
     
+    # Create a Mouser API cache manager
+    mouser_cache_manager = MouserApiCacheManager()
+
     # Handle queued projects
     if db_project.status == 'queued':
         # Get BOM items
@@ -236,6 +245,7 @@ async def get_project(
             components.append(component)
         
         bom = InputBOM(
+            project_name=db_project.name,
             components=components,
             project_description=db_project.description
         )
@@ -268,7 +278,8 @@ async def get_project(
                 "datasheet_url": None,
                 "price": None,
                 "availability": None,
-                "match_status": "pending" # Default status for processing items
+                "match_status": "pending", # Default status for processing items
+                "potential_matches": None
             }
             
             # Set the match status based on db_match presence first
@@ -277,15 +288,160 @@ async def get_project(
             
             # If we have a match and component, add the component data
             if db_match and db_component:
+                # Convert price to float for API response
+                api_price = None
+                if db_component.price is not None:
+                    try:
+                        # Try to convert Decimal to float
+                        api_price = float(db_component.price)
+                        logging.info(f"Successfully converted price {db_component.price} to float: {api_price}")
+                    except (ValueError, TypeError) as e:
+                        logging.error(f"Failed to convert price {db_component.price} to float: {e}")
+                
                 component_dict.update({
                     "mouser_part_number": db_component.mouser_part_number,
                     "manufacturer_part_number": db_component.manufacturer_part_number,
                     "manufacturer_name": db_component.manufacturer_name,
                     "mouser_description": db_component.description,
                     "datasheet_url": db_component.datasheet_url,
-                    "price": float(db_component.price) if db_component.price else None,
+                    "price": api_price,
                     "availability": db_component.availability,
                 })
+            
+            # Get potential matches for this BOM item
+            db_potential_matches = get_potential_matches_for_bom_item(db=db, bom_item_id=db_bom_item.bom_item_id)
+            if db_potential_matches:
+                potential_matches = []
+                for db_potential in db_potential_matches:
+                    # Get component details if available
+                    linked_component = None
+                    
+                    # First check if component_id is already set on the potential match
+                    if db_potential.component_id:
+                        # Use the directly linked component if available
+                        linked_component = db.query(Component).get(db_potential.component_id)
+                    
+                    # If no direct link, try to find by MPN
+                    if not linked_component:
+                        linked_component = get_component_by_mpn(db, db_potential.manufacturer_part_number)
+                    
+                    # Create potential match dict
+                    potential_match = {
+                        "rank": db_potential.rank,
+                        "manufacturer_part_number": db_potential.manufacturer_part_number,
+                        "reason": db_potential.reason,
+                        "selection_state": db_potential.selection_state,
+                        "mouser_part_number": None,
+                        "manufacturer_name": None,
+                        "mouser_description": None,
+                        "datasheet_url": None,
+                        "price": None,
+                        "availability": None,
+                        "component_id": None
+                    }
+                    
+                    # Add component details if found in database
+                    if linked_component:
+                        # Convert price to float for API response
+                        api_price = None
+                        if linked_component.price is not None:
+                            try:
+                                # Try to convert Decimal to float
+                                api_price = float(linked_component.price)
+                                logging.info(f"Successfully converted price {linked_component.price} to float: {api_price}")
+                            except (ValueError, TypeError) as e:
+                                logging.error(f"Failed to convert price {linked_component.price} to float: {e}")
+                                
+                        potential_match.update({
+                            "mouser_part_number": linked_component.mouser_part_number,
+                            "manufacturer_name": linked_component.manufacturer_name,
+                            "mouser_description": linked_component.description,
+                            "datasheet_url": linked_component.datasheet_url,
+                            "price": api_price,
+                            "availability": linked_component.availability,
+                            "component_id": linked_component.component_id
+                        })
+                    else:
+                        # If not in database, try to fetch from Mouser API
+                        try:
+                            mouser_data = search_mouser_by_mpn(
+                                mpn=db_potential.manufacturer_part_number,
+                                cache_manager=mouser_cache_manager,
+                                db=db
+                            )
+                            if mouser_data:
+                                # Convert price if needed
+                                price = mouser_data.get('Price')
+                                logging.info(f"===== PROJECT PRICE DEBUG =====")
+                                logging.info(f"MPN: {db_potential.manufacturer_part_number}")
+                                logging.info(f"Raw mouser_data price: {mouser_data.get('Price')}")
+                                logging.info(f"Price type: {type(mouser_data.get('Price'))}")
+                                logging.info(f"Final price value: {price}")
+                                logging.info(f"===== END PROJECT PRICE DEBUG =====")
+                                # Price is already a float or None from mouser_api.py
+                                
+                                potential_match.update({
+                                    "mouser_part_number": mouser_data.get('Mouser Part Number'),
+                                    "manufacturer_name": mouser_data.get('Manufacturer Name'),
+                                    "mouser_description": mouser_data.get('Mouser Description'),
+                                    "datasheet_url": mouser_data.get('Datasheet URL'),
+                                    "price": price,
+                                    "availability": mouser_data.get('Availability')
+                                })
+                                
+                                # First check if component already exists in database
+                                existing_component = db.query(Component).filter(
+                                    Component.mouser_part_number == mouser_data.get('Mouser Part Number')
+                                ).first()
+                                
+                                if existing_component:
+                                    # Use existing component
+                                    logging.info(f"Found existing component for mouser part number {mouser_data.get('Mouser Part Number')}")
+                                    component_id = existing_component.component_id
+                                    potential_match["component_id"] = component_id
+                                    
+                                    # Update component data to ensure it's current
+                                    existing_component.manufacturer_part_number = db_potential.manufacturer_part_number
+                                    existing_component.manufacturer_name = mouser_data.get('Manufacturer Name')
+                                    existing_component.description = mouser_data.get('Mouser Description')
+                                    existing_component.datasheet_url = mouser_data.get('Datasheet URL')
+                                    # Convert price to Decimal for database storage
+                                    if price is not None:
+                                        existing_component.price = Decimal(str(price))
+                                    else:
+                                        existing_component.price = None
+                                    existing_component.availability = mouser_data.get('Availability')
+                                    existing_component.last_updated = datetime.datetime.now()
+                                    
+                                    # Update the potential match record with the component_id
+                                    db_potential.component_id = component_id
+                                    db.flush()
+                                else:
+                                    # Create a new component record in the database
+                                    new_component = Component(
+                                        mouser_part_number=mouser_data.get('Mouser Part Number'),
+                                        manufacturer_part_number=db_potential.manufacturer_part_number,
+                                        manufacturer_name=mouser_data.get('Manufacturer Name'),
+                                        description=mouser_data.get('Mouser Description'),
+                                        datasheet_url=mouser_data.get('Datasheet URL'),
+                                        # Convert price to Decimal for database storage
+                                        price=Decimal(str(price)) if price is not None else None,
+                                        availability=mouser_data.get('Availability')
+                                    )
+                                    db.add(new_component)
+                                    db.flush()  # Get the component ID without committing
+                                    potential_match["component_id"] = new_component.component_id
+                                    
+                                    # Update the potential match record with the component_id
+                                    db_potential.component_id = new_component.component_id
+                                    db.flush()
+                        except Exception as e:
+                            logger.warning(f"Failed to fetch component details from Mouser for MPN {db_potential.manufacturer_part_number}: {e}")
+                            # Continue with partial data
+                    
+                    potential_matches.append(PotentialMatch(**potential_match))
+                
+                component_dict["potential_matches"] = potential_matches
             
             matched_components.append(MatchedComponent(**component_dict))
             
@@ -303,8 +459,6 @@ async def get_project(
         return {
             "status": "processing",
             "bom": matched_bom.model_dump()
-            # Optionally add start_time if available
-            # "start_time": db_project.start_time.isoformat() if db_project.start_time else None
         }
     
     # Handle errored projects
@@ -322,6 +476,7 @@ async def get_project(
             components.append(component)
         
         bom = InputBOM(
+            project_name=db_project.name,
             components=components,
             project_description=db_project.description
         )
@@ -329,8 +484,6 @@ async def get_project(
         return {
             "status": "error",
             "bom": bom.model_dump()
-            # Optionally add end_time to show when it failed
-            # "end_time": db_project.end_time.isoformat() if db_project.end_time else None
         }
     
     # Handle finished projects
@@ -354,7 +507,8 @@ async def get_project(
                 "datasheet_url": None,
                 "price": None,
                 "availability": None,
-                "match_status": "no_match_record" # Default status if no match record found
+                "match_status": "no_match_record", # Default status if no match record found
+                "potential_matches": None
             }
             
             # Set the match status based on db_match presence first
@@ -363,15 +517,160 @@ async def get_project(
             
             # If we have a match and component, add the component data
             if db_match and db_component:
+                # Convert price to float for API response
+                api_price = None
+                if db_component.price is not None:
+                    try:
+                        # Try to convert Decimal to float
+                        api_price = float(db_component.price)
+                        logging.info(f"Successfully converted price {db_component.price} to float: {api_price}")
+                    except (ValueError, TypeError) as e:
+                        logging.error(f"Failed to convert price {db_component.price} to float: {e}")
+                
                 component_dict.update({
                     "mouser_part_number": db_component.mouser_part_number,
                     "manufacturer_part_number": db_component.manufacturer_part_number,
                     "manufacturer_name": db_component.manufacturer_name,
                     "mouser_description": db_component.description,
                     "datasheet_url": db_component.datasheet_url,
-                    "price": float(db_component.price) if db_component.price else None,
+                    "price": api_price,
                     "availability": db_component.availability,
                 })
+            
+            # Get potential matches for this BOM item
+            db_potential_matches = get_potential_matches_for_bom_item(db=db, bom_item_id=db_bom_item.bom_item_id)
+            if db_potential_matches:
+                potential_matches = []
+                for db_potential in db_potential_matches:
+                    # Get component details if available
+                    linked_component = None
+                    
+                    # First check if component_id is already set on the potential match
+                    if db_potential.component_id:
+                        # Use the directly linked component if available
+                        linked_component = db.query(Component).get(db_potential.component_id)
+                    
+                    # If no direct link, try to find by MPN
+                    if not linked_component:
+                        linked_component = get_component_by_mpn(db, db_potential.manufacturer_part_number)
+                    
+                    # Create potential match dict
+                    potential_match = {
+                        "rank": db_potential.rank,
+                        "manufacturer_part_number": db_potential.manufacturer_part_number,
+                        "reason": db_potential.reason,
+                        "selection_state": db_potential.selection_state,
+                        "mouser_part_number": None,
+                        "manufacturer_name": None,
+                        "mouser_description": None,
+                        "datasheet_url": None,
+                        "price": None,
+                        "availability": None,
+                        "component_id": None
+                    }
+                    
+                    # Add component details if found in database
+                    if linked_component:
+                        # Convert price to float for API response
+                        api_price = None
+                        if linked_component.price is not None:
+                            try:
+                                # Try to convert Decimal to float
+                                api_price = float(linked_component.price)
+                                logging.info(f"Successfully converted price {linked_component.price} to float: {api_price}")
+                            except (ValueError, TypeError) as e:
+                                logging.error(f"Failed to convert price {linked_component.price} to float: {e}")
+                                
+                        potential_match.update({
+                            "mouser_part_number": linked_component.mouser_part_number,
+                            "manufacturer_name": linked_component.manufacturer_name,
+                            "mouser_description": linked_component.description,
+                            "datasheet_url": linked_component.datasheet_url,
+                            "price": api_price,
+                            "availability": linked_component.availability,
+                            "component_id": linked_component.component_id
+                        })
+                    else:
+                        # If not in database, try to fetch from Mouser API
+                        try:
+                            mouser_data = search_mouser_by_mpn(
+                                mpn=db_potential.manufacturer_part_number,
+                                cache_manager=mouser_cache_manager,
+                                db=db
+                            )
+                            if mouser_data:
+                                # Convert price if needed
+                                price = mouser_data.get('Price')
+                                logging.info(f"===== PROJECT PRICE DEBUG =====")
+                                logging.info(f"MPN: {db_potential.manufacturer_part_number}")
+                                logging.info(f"Raw mouser_data price: {mouser_data.get('Price')}")
+                                logging.info(f"Price type: {type(mouser_data.get('Price'))}")
+                                logging.info(f"Final price value: {price}")
+                                logging.info(f"===== END PROJECT PRICE DEBUG =====")
+                                # Price is already a float or None from mouser_api.py
+                                
+                                potential_match.update({
+                                    "mouser_part_number": mouser_data.get('Mouser Part Number'),
+                                    "manufacturer_name": mouser_data.get('Manufacturer Name'),
+                                    "mouser_description": mouser_data.get('Mouser Description'),
+                                    "datasheet_url": mouser_data.get('Datasheet URL'),
+                                    "price": price,
+                                    "availability": mouser_data.get('Availability')
+                                })
+                                
+                                # First check if component already exists in database
+                                existing_component = db.query(Component).filter(
+                                    Component.mouser_part_number == mouser_data.get('Mouser Part Number')
+                                ).first()
+                                
+                                if existing_component:
+                                    # Use existing component
+                                    logging.info(f"Found existing component for mouser part number {mouser_data.get('Mouser Part Number')}")
+                                    component_id = existing_component.component_id
+                                    potential_match["component_id"] = component_id
+                                    
+                                    # Update component data to ensure it's current
+                                    existing_component.manufacturer_part_number = db_potential.manufacturer_part_number
+                                    existing_component.manufacturer_name = mouser_data.get('Manufacturer Name')
+                                    existing_component.description = mouser_data.get('Mouser Description')
+                                    existing_component.datasheet_url = mouser_data.get('Datasheet URL')
+                                    # Convert price to Decimal for database storage
+                                    if price is not None:
+                                        existing_component.price = Decimal(str(price))
+                                    else:
+                                        existing_component.price = None
+                                    existing_component.availability = mouser_data.get('Availability')
+                                    existing_component.last_updated = datetime.datetime.now()
+                                    
+                                    # Update the potential match record with the component_id
+                                    db_potential.component_id = component_id
+                                    db.flush()
+                                else:
+                                    # Create a new component record in the database
+                                    new_component = Component(
+                                        mouser_part_number=mouser_data.get('Mouser Part Number'),
+                                        manufacturer_part_number=db_potential.manufacturer_part_number,
+                                        manufacturer_name=mouser_data.get('Manufacturer Name'),
+                                        description=mouser_data.get('Mouser Description'),
+                                        datasheet_url=mouser_data.get('Datasheet URL'),
+                                        # Convert price to Decimal for database storage
+                                        price=Decimal(str(price)) if price is not None else None,
+                                        availability=mouser_data.get('Availability')
+                                    )
+                                    db.add(new_component)
+                                    db.flush()  # Get the component ID without committing
+                                    potential_match["component_id"] = new_component.component_id
+                                    
+                                    # Update the potential match record with the component_id
+                                    db_potential.component_id = new_component.component_id
+                                    db.flush()
+                        except Exception as e:
+                            logger.warning(f"Failed to fetch component details from Mouser for MPN {db_potential.manufacturer_part_number}: {e}")
+                            # Continue with partial data
+                    
+                    potential_matches.append(PotentialMatch(**potential_match))
+                
+                component_dict["potential_matches"] = potential_matches
             
             matched_components.append(MatchedComponent(**component_dict))
         

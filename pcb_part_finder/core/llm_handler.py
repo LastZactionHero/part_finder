@@ -2,6 +2,8 @@
 
 import os
 import re
+import json
+import logging
 from typing import List, Dict, Any, Optional
 import anthropic
 from google import genai
@@ -154,32 +156,98 @@ def format_evaluation_prompt(part_info: Dict[str, str], project_name: str, proje
         for part in mouser_results
     ])
     
-    return f"""Here is a list of potential parts from Mouser for the original part described below. Your task is to evaluate this list and select the single best part that matches the requirements and context provided. Consider the other parts in the project listed in the BOM.
+    return f"""Here is a list of potential parts from Mouser for the original part described below. Your task is to evaluate this list and select the top 5 most suitable and diverse candidate parts. Consider the other parts in the project listed in the BOM.
 
 Original Part Details (Currently Evaluating):
 Quantity: {part_info.get('Qty', '')}
 Description: {part_info.get('Description', '')}
 Possible MPN: {part_info.get('Possible MPN', '')}
 Package: {part_info.get('Package', '')}
-Notes/Source: {part_info.get('Notes/Source', '')}\n\nProject Name: {project_name}\n\nProject Notes:\n{project_notes}\n\nOriginal Bill of Materials (BOM):\n{bom_list_str}\n\nMouser Search Results:\n{mouser_results_str}\n\nWhen evaluating the Mouser parts, prioritize parts that are currently in stock or have a short lead time. The most important factor is that the selected part closely matches the requirements and specifications mentioned in the 'Notes/Source' field provided for the original part. Favor parts with readily available datasheets. Consider the manufacturer if project preferences are indicated in the 'Project Notes' or the overall 'Original Bill of Materials'. While important, price should be a secondary consideration after availability and functional suitability are established. Ensure the specifications and package of the selected part are compatible with the original requirement.\n\nReturn your answer in the following format so it can be easily parsed. Use EXACTLY the Manufacturer Part Number as shown in the list above, do not add manufacturer name or any other text:\n[ManufacturerPartNumber:XXXXX]"""
+Notes/Source: {part_info.get('Notes/Source', '')}\n\nProject Name: {project_name}\n\nProject Notes:\n{project_notes}\n\nOriginal Bill of Materials (BOM):\n{bom_list_str}\n\nMouser Search Results:\n{mouser_results_str}\n\nWhen evaluating the Mouser parts, consider:
+1. Prioritize parts that are currently in stock or have a short lead time
+2. The most important factor is that the selected parts closely match the requirements and specifications mentioned in the 'Notes/Source' field
+3. Favor parts with readily available datasheets
+4. Consider the manufacturer if project preferences are indicated in the 'Project Notes' or the overall 'Original Bill of Materials'
+5. While important, price should be a secondary consideration after availability and functional suitability
+6. Ensure the specifications and package of the selected parts are compatible with the original requirement
+7. Aim for diversity in the suggestions (e.g., include low-cost, high-availability, high-spec options)
 
-def extract_mpn_from_eval(llm_response: Optional[str]) -> Optional[str]:
+Return your answer ONLY as a valid JSON list of objects. Each object should have two keys:
+- "mpn": The exact Manufacturer Part Number from the search results
+- "reason": A brief justification for selecting this part (max 1-2 sentences)
+
+Example format:
+```json
+[
+  {{"mpn": "MPN_ABC", "reason": "Lowest cost option with good availability"}},
+  {{"mpn": "MPN_DEF", "reason": "Best specifications match, slightly higher cost"}},
+  {{"mpn": "MPN_GHI", "reason": "Alternative from preferred manufacturer"}},
+  {{"mpn": "MPN_JKL", "reason": "Good balance of cost and specs"}},
+  {{"mpn": "MPN_MNO", "reason": "High availability option"}}
+]
+```
+
+Return ONLY the JSON array with no other text. It will be parsed directly."""
+
+def parse_potential_matches_json(llm_response: Optional[str]) -> List[Dict[str, str]]:
     """
-    Extract the Manufacturer Part Number from the LLM evaluation response.
+    Parse potential matches from the LLM evaluation response.
     
     Args:
         llm_response: The raw response from the LLM
         
     Returns:
-        The extracted MPN, or None if not found
+        A list of dictionaries containing 'mpn' and 'reason' keys
     """
     if not llm_response:
-        return None
+        logging.warning("Empty LLM response received")
+        return []
+    
+    try:
+        # Try to extract JSON from markdown code blocks if present
+        if llm_response.startswith("```json"):
+            json_content = llm_response.split("```json")[1].split("```")[0].strip()
+            llm_response = json_content
         
-    match = re.search(r'\[ManufacturerPartNumber:(.*?)\]', llm_response)
-    if match:
-        return match.group(1).strip()
-    return None
+        # Parse the JSON response
+        data = json.loads(llm_response)
+        
+        # Validate that data is a list
+        if not isinstance(data, list):
+            logging.error("LLM response is not a list")
+            return []
+            
+        # Validate each item in the list
+        valid_matches = []
+        for i, item in enumerate(data):
+            if not isinstance(item, dict):
+                logging.warning(f"Item {i} is not a dictionary")
+                continue
+                
+            mpn = item.get('mpn')
+            reason = item.get('reason')
+            
+            if not isinstance(mpn, str) or not isinstance(reason, str):
+                logging.warning(f"Item {i} has invalid mpn or reason types")
+                continue
+                
+            if not mpn.strip():
+                logging.warning(f"Item {i} has empty mpn")
+                continue
+                
+            valid_matches.append({
+                'mpn': mpn.strip(),
+                'reason': reason.strip()
+            })
+            
+        return valid_matches
+        
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to parse LLM response as JSON: {e}")
+        return []
+    except Exception as e:
+        logging.error(f"Unexpected error parsing LLM response: {e}")
+        return []
 
 def get_gemini_client() -> Optional[genai.Client]:
     """Get the Gemini API client.

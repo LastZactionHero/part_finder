@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class BOMComponent(BaseModel):
@@ -11,19 +11,20 @@ class BOMComponent(BaseModel):
 
 class InputBOM(BaseModel):
     """Schema for the input BOM file."""
+    project_name: str = Field(..., description="Project name")
     components: list[BOMComponent] = Field(..., description="List of components in the BOM")
     project_description: Optional[str] = Field(None, description="Optional project description")
 
 class MatchedComponent(BOMComponent):
     """Schema for a matched component, extending the base BOMComponent."""
-    mouser_part_number: Optional[str] = Field(None, description="Mouser part number")
-    manufacturer_part_number: Optional[str] = Field(None, description="Manufacturer part number")
-    manufacturer_name: Optional[str] = Field(None, description="Manufacturer name")
-    mouser_description: Optional[str] = Field(None, description="Mouser's description of the part")
+    mouser_part_number: Optional[str] = Field(None, description="Mouser part number of the final selected component, if any")
+    manufacturer_part_number: Optional[str] = Field(None, description="Manufacturer part number of the final selected component, if any")
+    manufacturer_name: Optional[str] = Field(None, description="Manufacturer name of the final selected component, if any")
+    mouser_description: Optional[str] = Field(None, description="Mouser's description of the final selected component, if any")
     datasheet_url: Optional[str] = Field(None, description="URL to the part's datasheet")
     price: Optional[float] = Field(None, description="Unit price in USD")
     availability: Optional[str] = Field(None, description="Number of parts available")
-    match_status: Optional[str] = Field(None, description="Status of the match (e.g., 'exact', 'close', 'no_match')")
+    match_status: Optional[str] = Field(None, description="Status of the match (e.g., 'matched', 'no_match', 'error')")
 
 class MatchedBOM(BaseModel):
     """Schema for the matched BOM file."""

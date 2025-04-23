@@ -1,5 +1,7 @@
-// API base URL - use the exposed port on localhost
-const API_BASE_URL = 'https://api.bompartfinder.com';
+// API base URL - set based on environment
+const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:8000'
+    : 'https://api.bompartfinder.com';
 // const API_BASE_URL = 'http://localhost:8000';
 // DOM elements
 const componentInput = document.getElementById('componentInput');
@@ -204,10 +206,12 @@ function updateResultsTable(components) {
         'error': 'System Error', // Generic internal error
         'pending': 'Processing...', // For items still in progress
         'no_match_record': 'No Match', // If backend uses this for finished items without a match record
+        'potential_matches_saved': 'Potential Matches Found', // New status for items with potential matches
     };
     const defaultStatusText = 'Unknown Status';
 
     components.forEach(component => {
+        // Create primary row for the original BOM item
         const row = resultsTable.insertRow();
         const qtyCell = row.insertCell();
         const descCell = row.insertCell();
@@ -220,10 +224,13 @@ function updateResultsTable(components) {
 
         qtyCell.textContent = component.qty;
         descCell.textContent = component.description;
-        mpnCell.textContent = component.manufacturer_part_number || 'N/A';
-        manufCell.textContent = component.manufacturer_name || 'N/A';
-        priceCell.textContent = component.price ? `$${component.price.toFixed(2)}` : 'N/A';
-        availCell.textContent = component.availability || 'N/A';
+        
+        // For BOM item row, leave cells empty instead of showing N/A
+        mpnCell.textContent = '';
+        manufCell.textContent = '';
+        priceCell.textContent = '';
+        availCell.textContent = '';
+        mouserCell.textContent = '';
 
         // Set status text using the map
         statusCell.textContent = statusDisplayMap[component.match_status] || defaultStatusText;
@@ -253,6 +260,8 @@ function updateResultsTable(components) {
                     return 'status-system-error';
                 case 'pending':
                     return 'status-pending';
+                case 'potential_matches_saved':
+                    return 'status-potential-matches';
                 default:
                     return 'status-unknown';
             }
@@ -262,7 +271,7 @@ function updateResultsTable(components) {
         statusCell.classList.remove(
             'status-matched', 'status-no-match', 'status-evaluation-needed',
             'status-lookup-failed', 'status-api-error', 'status-system-error',
-            'status-pending', 'status-unknown'
+            'status-pending', 'status-unknown', 'status-potential-matches'
         );
 
         // Add the specific CSS class based on the status
@@ -270,15 +279,47 @@ function updateResultsTable(components) {
         statusCell.classList.add(statusClass);
         // --- End New CSS Class Logic ---
 
-        // Add Mouser link if available
-        if (component.mouser_part_number) {
-            const link = document.createElement('a');
-            link.href = `https://www.mouser.com/ProductDetail/${component.mouser_part_number}`;
-            link.textContent = component.mouser_part_number;
-            link.target = '_blank';
-            mouserCell.appendChild(link);
-        } else {
-            mouserCell.textContent = 'Not matched';
+        // Handle potential matches if they exist
+        if (component.potential_matches && Array.isArray(component.potential_matches) && component.potential_matches.length > 0) {
+            component.potential_matches.forEach(potentialMatch => {
+                // Create a new row for each potential match
+                const potentialRow = resultsTable.insertRow();
+                potentialRow.classList.add('potential-match-row');
+                potentialRow.classList.add(`rank-${potentialMatch.rank}`);
+
+                // Create cells for the potential match
+                const potentialQtyCell = potentialRow.insertCell();
+                const potentialDescCell = potentialRow.insertCell();
+                const potentialMpnCell = potentialRow.insertCell();
+                const potentialManufCell = potentialRow.insertCell();
+                const potentialStatusCell = potentialRow.insertCell();
+                const potentialPriceCell = potentialRow.insertCell();
+                const potentialAvailCell = potentialRow.insertCell();
+                const potentialMouserCell = potentialRow.insertCell();
+
+                // Populate cells with potential match data
+                potentialQtyCell.textContent = ""; //potentialMatch.rank;
+                potentialDescCell.textContent = potentialMatch.reason || 'No reason provided';
+                potentialMpnCell.textContent = potentialMatch.manufacturer_part_number || '';
+                potentialManufCell.textContent = potentialMatch.manufacturer_name || '';
+                potentialStatusCell.textContent = ""; //potentialMatch.selection_state === 'pending' ? '' : (potentialMatch.selection_state || 'proposed');
+                potentialPriceCell.textContent = potentialMatch.price ? `$${potentialMatch.price.toFixed(2)}` : '';
+                potentialAvailCell.textContent = potentialMatch.availability || '';
+
+                // Add selection state class
+                potentialStatusCell.classList.add(`status-${potentialMatch.selection_state}`);
+
+                // Add Mouser link if available
+                if (potentialMatch.mouser_part_number) {
+                    const link = document.createElement('a');
+                    link.href = `https://www.mouser.com/ProductDetail/${potentialMatch.mouser_part_number}`;
+                    link.textContent = potentialMatch.mouser_part_number;
+                    link.target = '_blank';
+                    potentialMouserCell.appendChild(link);
+                } else {
+                    potentialMouserCell.textContent = 'N/A';
+                }
+            });
         }
     });
 }

@@ -1,10 +1,11 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select, update
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any, Union
 import datetime
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from decimal import Decimal
 
-from .models import Project, BomItem, Component, BomItemMatch
+from .models import Project, BomItem, Component, BomItemMatch, PotentialBomMatch
 from ..schemas import InputBOM, BOMComponent
 
 def create_project(
@@ -229,48 +230,77 @@ def update_project_status(
     db.commit()
     return True
 
-def get_or_create_component(db: Session, component_data: Dict[str, Any]) -> Optional[Component]:
+def get_or_create_component(
+    db: Session, 
+    mouser_part_number: str,
+    manufacturer_part_number: str,
+    manufacturer_name: Optional[str] = None,
+    description: Optional[str] = None,
+    datasheet_url: Optional[str] = None,
+    price: Optional[Decimal] = None,
+    availability: Optional[str] = None,
+    package: Optional[str] = None
+) -> Optional[Component]:
     """
     Get an existing component by Mouser Part Number or create a new one.
-    Uses Manufacturer Part Number as a secondary check if Mouser Part Number is missing
-    or doesn't yield a result initially.
+    Uses Manufacturer Part Number as a secondary check if needed.
+    
+    Args:
+        db: Database session
+        mouser_part_number: Mouser part number
+        manufacturer_part_number: Manufacturer part number
+        manufacturer_name: Name of the manufacturer
+        description: Description of the component
+        datasheet_url: URL to component datasheet
+        price: Price of the component (as float or string)
+        availability: Availability status
+        package: Component package
+        
+    Returns:
+        The existing or newly created Component instance
     """
-    mpn = component_data.get('manufacturer_part_number')
-    mouser_pn = component_data.get('mouser_part_number')
     component = None
 
-    # Prioritize lookup by Mouser Part Number if available
-    if mouser_pn:
-        component = db.query(Component).filter(Component.mouser_part_number == mouser_pn).first()
+    # Try to find by Mouser Part Number first
+    if mouser_part_number:
+        component = db.query(Component).filter(Component.mouser_part_number == mouser_part_number).first()
 
-    # If not found by Mouser PN, or Mouser PN wasn't provided, try MPN
-    if not component and mpn:
-         component = db.query(Component).filter(Component.manufacturer_part_number == mpn).first()
+    # If not found, try by MPN
+    if not component and manufacturer_part_number:
+        component = db.query(Component).filter(Component.manufacturer_part_number == manufacturer_part_number).first()
 
     if component:
-        # Optionally update existing component data here if needed
-        # For now, just return the found component
-        # Example: component.price = component_data.get('price', component.price)
-        # db.commit() # If updates are made
+        # Component found, return it
         return component
-    else:
-        # If still not found, create a new component record
+            
+    # Create new component
+    component_data = {
+        'mouser_part_number': mouser_part_number,
+        'manufacturer_part_number': manufacturer_part_number,
+        'manufacturer_name': manufacturer_name,
+        'description': description,
+        'datasheet_url': datasheet_url,
+        'price': price,
+        'availability': availability,
+        'package': package
+    }
+    
+    try:
         new_component = Component(**component_data)
-        try:
-            db.add(new_component)
-            db.flush() # Use flush to get the ID without full commit yet
-            return new_component
-        except IntegrityError:
-            db.rollback() # Rollback if integrity error (e.g., duplicate key constraint)
-            # Try fetching again in case of race condition
-            if mouser_pn:
-                 component = db.query(Component).filter(Component.mouser_part_number == mouser_pn).first()
-            if not component and mpn:
-                 component = db.query(Component).filter(Component.manufacturer_part_number == mpn).first()
-            return component # Return component found after rollback/retry or None
-        except Exception:
-            db.rollback()
-            raise # Re-raise other exceptions
+        db.add(new_component)
+        db.flush()  # Get ID without full commit
+        return new_component
+    except IntegrityError:
+        db.rollback()
+        # Try to find again in case of race condition
+        if mouser_part_number:
+            component = db.query(Component).filter(Component.mouser_part_number == mouser_part_number).first()
+        if not component and manufacturer_part_number:
+            component = db.query(Component).filter(Component.manufacturer_part_number == manufacturer_part_number).first()
+        return component
+    except Exception:
+        db.rollback()
+        raise
 
 def get_component_by_mpn(db: Session, mpn: str) -> Optional[Component]:
     """Retrieve a component by its Manufacturer Part Number."""
@@ -328,4 +358,59 @@ def get_finished_project_data(
         .filter(BomItem.project_id == project_id)
     )
     
-    return query.all() 
+    return query.all()
+
+def create_potential_bom_match(
+    db: Session,
+    bom_item_id: int,
+    rank: int,
+    manufacturer_part_number: str,
+    reason: Optional[str] = None,
+    selection_state: str = 'proposed',
+    component_id: Optional[int] = None
+) -> PotentialBomMatch:
+    """
+    Create a new potential BOM match in the database.
+    
+    Args:
+        db: Database session
+        bom_item_id: ID of the BOM item this potential match belongs to
+        rank: Rank of this potential match (1-5)
+        manufacturer_part_number: The suggested manufacturer part number
+        reason: Optional reason/justification for this match
+        selection_state: Current state of this match (defaults to 'proposed')
+        component_id: ID of the component if already in the database
+        
+    Returns:
+        The created PotentialBomMatch instance
+    """
+    db_potential_match = PotentialBomMatch(
+        bom_item_id=bom_item_id,
+        rank=rank,
+        manufacturer_part_number=manufacturer_part_number,
+        reason=reason,
+        selection_state=selection_state,
+        component_id=component_id
+    )
+    db.add(db_potential_match)
+    return db_potential_match
+
+def get_potential_matches_for_bom_item(
+    db: Session,
+    bom_item_id: int
+) -> List[PotentialBomMatch]:
+    """
+    Get all potential matches for a BOM item, ordered by rank.
+    
+    Args:
+        db: Database session
+        bom_item_id: ID of the BOM item
+        
+    Returns:
+        List of PotentialBomMatch instances, ordered by rank
+    """
+    return db.query(PotentialBomMatch).filter(
+        PotentialBomMatch.bom_item_id == bom_item_id
+    ).order_by(
+        PotentialBomMatch.rank.asc()
+    ).all() 

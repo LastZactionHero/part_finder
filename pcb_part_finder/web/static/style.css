@@ -213,6 +213,7 @@ button:active {
     box-shadow: var(--shadow-md);
     background-color: var(--card-background);
     padding: 1rem;
+    width: 100%; /* Ensure container takes full width */
 }
 
 table {
@@ -220,12 +221,35 @@ table {
     border-collapse: separate;
     border-spacing: 0;
     margin-top: 0.5rem;
+    table-layout: fixed; /* Enable fixed table layout for better column control */
 }
 
+/* Column widths */
 th, td {
-    padding: 1.25rem;
+    padding: 1rem;
     text-align: left;
     border-bottom: 1px solid var(--border-color);
+    white-space: nowrap; /* Prevent text wrapping by default */
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Specific column widths */
+th:nth-child(1), td:nth-child(1) { width: 5%; } /* Qty */
+th:nth-child(2), td:nth-child(2) { width: 30%; } /* Description/Reason */
+th:nth-child(3), td:nth-child(3) { width: 15%; } /* Mouser Part */
+th:nth-child(4), td:nth-child(4) { width: 12%; } /* Manufacturer */
+th:nth-child(5), td:nth-child(5) { width: 10%; } /* Selection State */
+th:nth-child(6), td:nth-child(6) { width: 8%; } /* Price */
+th:nth-child(7), td:nth-child(7) { width: 10%; } /* Availability */
+th:nth-child(8), td:nth-child(8) { width: 10%; } /* URL */
+
+/* Description/Reason cell specific styling */
+td:nth-child(2) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 0; /* Force truncation */
 }
 
 th {
@@ -301,8 +325,10 @@ a:hover {
 }
 
 .status-matched {
-    color: #28a745; /* Green */
+    color: #00ff00 !important; /* Neon green */
     font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 .status-no-match,
@@ -318,7 +344,7 @@ a:hover {
 }
 
 .status-pending {
-    color: #6c757d; /* Gray */
+    color: var(--primary-color) !important;
     font-style: italic;
 }
 
@@ -327,18 +353,107 @@ a:hover {
     font-style: italic;
 }
 
-/* Optional: Add subtle background or borders */
-/*
-#resultsTable td[class^="status-"] {
-    padding: 5px 8px;
-    border-radius: 4px;
-    text-align: center;
+.status-potential-matches {
+    color: #17a2b8; /* Info Blue */
+    font-weight: bold;
 }
-.status-matched { background-color: #e9f7ec; }
-.status-no-match, .status-evaluation-needed, .status-lookup-failed { background-color: #fff8e1; }
-.status-api-error, .status-system-error, .status-unknown { background-color: #fbe_DEE; }
-.status-pending { background-color: #f8f9fa; }
-*/ 
+
+/* Potential Match Row Styling with lighter, more distinct background */
+.potential-match-row {
+    background-color: #2d2d2d; /* Lighter background for potential matches */
+    font-size: 0.92em;
+    border-left: 4px solid var(--primary-color);
+    margin-left: 20px;
+    position: relative;
+}
+
+.potential-match-row td {
+    padding: 8px 16px;
+    color: var(--text-secondary);
+}
+
+.potential-match-row td:first-child {
+    color: var(--text-secondary);
+    opacity: 0.7;
+    font-size: 0.85em;
+}
+
+/* Selection State Styling */
+.status-proposed {
+    color: #17a2b8; /* Info Blue */
+    font-style: italic;
+}
+
+.status-selected {
+    color: #28a745; /* Green */
+    font-weight: bold;
+}
+
+.status-rejected {
+    color: #dc3545; /* Red */
+    text-decoration: line-through;
+}
+
+/* Rank-based styling - More vibrant Pit Viper inspired colors */
+.rank-1 {
+    border-left-color: #00ff00; /* Neon green */
+}
+
+.rank-2 {
+    border-left-color: #ff00ff; /* Neon pink */
+}
+
+.rank-3 {
+    border-left-color: #00ffff; /* Neon cyan */
+}
+
+.rank-4, .rank-5 {
+    border-left-color: #ff9900; /* Neon orange */
+}
+
+/* Make BOM items more prominent with darker background */
+#resultsTable tr:not(.potential-match-row) {
+    background-color: #1a1a1a; /* Darker background for BOM items */
+    border-top: 2px solid var(--primary-color);
+    font-weight: 500;
+    position: relative;
+}
+
+#resultsTable tr:not(.potential-match-row):after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    opacity: 0.3;
+}
+
+/* Add alternating subtle gradients to potential matches */
+.potential-match-row:nth-child(odd) {
+    background: linear-gradient(90deg, #2d2d2d, #2a2a2a);
+}
+
+.potential-match-row:nth-child(even) {
+    background: linear-gradient(90deg, #2a2a2a, #2d2d2d);
+}
+
+/* Update table header background for better contrast */
+#resultsTable thead tr {
+    background-color: #151515 !important; /* Darkest background for header */
+    border-bottom: 2px solid var(--primary-color);
+}
+
+#resultsTable thead th {
+    background-color: transparent;
+    color: var(--text-color);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 16px;
+    border-bottom: none;
+}
 
 /* New combined section styling */
 #processing-results-section {

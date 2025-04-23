@@ -5,16 +5,19 @@ from typing import List, Dict, Any
 import datetime # Add datetime import for error handling
 import concurrent.futures # Added for concurrency
 import threading # Added for concurrency (though not directly used yet)
+from decimal import Decimal # Add Decimal import
 # Removed sessionmaker import from sqlalchemy.orm as we'll import SessionLocal
 # from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm import Session # Keep Session for type hints if needed elsewhere
+from sqlalchemy.exc import SQLAlchemyError # Add SQLAlchemyError import
 # Import necessary CRUD functions and models
 from pcb_part_finder.db.models import Project, BomItem, Component, BomItemMatch 
 from pcb_part_finder.db.crud import (
     get_or_create_component, 
     create_bom_item_match, 
     update_project_status, # Import for error handling
-    get_component_by_mpn # Import the new function
+    get_component_by_mpn, # Import the new function
+    create_potential_bom_match # Import the new function
 ) 
 # Import the session factory
 from pcb_part_finder.core.database import SessionLocal
@@ -43,13 +46,11 @@ def _process_single_bom_item(
     project_name: str,
     project_description: str,
     mouser_cache_manager: MouserApiCacheManager,
-    full_bom_list: List[Dict[str, Any]] # Added argument for the full BOM list
-    # Removed db_session_factory parameter
+    full_bom_list: List[Dict[str, Any]]
 ) -> str:
     """
     Processes a single BOM item: generates search terms, queries Mouser,
-    evaluates results, potentially finds/creates a component record,
-    and creates a BomItemMatch linking the BomItem to the Component.
+    evaluates results, and creates PotentialBomMatch records for each candidate.
 
     This function runs in a separate thread managed by ThreadPoolExecutor.
     It creates and manages its own database session using SessionLocal.
@@ -77,8 +78,6 @@ def _process_single_bom_item(
         'Notes/Source': bom_item.notes or '' # Duplicating notes for context
     }
     status = 'pending' # Initial status
-    component_id = None
-    component_record = None # Initialize to None
 
     with SessionLocal() as db: # Create session scope for this worker
         logger.info(f"Worker processing BOM item {bom_item.bom_item_id} using session {id(db)}")
@@ -98,11 +97,13 @@ def _process_single_bom_item(
                 status = 'llm_error'
             except Exception as e:
                 logger.error(f"Unexpected error generating search terms for item {bom_item.bom_item_id}: {e}", exc_info=True)
-                status = 'processing_error' # Or a more specific status?
+                status = 'processing_error'
 
             # Step 3: Perform Mouser Keyword Search
             mouser_results = []
             unique_mouser_part_numbers = set()
+            # Map to store MPNs to component IDs for reuse
+            mpn_to_component_id = {}
             if status == 'pending' and search_terms:
                 try:
                     for term in search_terms:
@@ -114,9 +115,35 @@ def _process_single_bom_item(
                         )
                         for part in results:
                             mouser_part_number = part.get('MouserPartNumber')
+                            manufacturer_part_number = part.get('ManufacturerPartNumber')
                             if mouser_part_number and mouser_part_number not in unique_mouser_part_numbers:
                                 unique_mouser_part_numbers.add(mouser_part_number)
                                 mouser_results.append(part)
+                                
+                                # Store component in database right away
+                                if manufacturer_part_number:
+                                    try:
+                                        # First check if component already exists
+                                        existing_component = get_component_by_mpn(db, manufacturer_part_number)
+                                        if existing_component:
+                                            mpn_to_component_id[manufacturer_part_number] = existing_component.component_id
+                                        else:
+                                            # Create new component with data we already have
+                                            component = get_or_create_component(
+                                                db=db,
+                                                mouser_part_number=mouser_part_number,
+                                                manufacturer_part_number=manufacturer_part_number,
+                                                manufacturer_name=part.get('Manufacturer', ''),
+                                                description=part.get('Description', ''),
+                                                datasheet_url=part.get('DataSheetUrl', ''),
+                                                price=Decimal(part.get('PriceBreaks', [{}])[0].get('Price', '0').replace('$', '').replace(',', '')) if part.get('PriceBreaks') else Decimal('0.0'),
+                                                availability=part.get('Availability', 'Unknown')
+                                            )
+                                            mpn_to_component_id[manufacturer_part_number] = component.component_id
+                                    except Exception as comp_err:
+                                        logger.warning(f"Error storing component {manufacturer_part_number} from search results: {comp_err}")
+                                        # Continue processing even if component storage fails
+                                        
                     if not mouser_results:
                         logger.warning(f"No unique Mouser results found for item {bom_item.bom_item_id}")
                         status = 'no_keyword_results'
@@ -125,117 +152,89 @@ def _process_single_bom_item(
                     status = 'mouser_error'
                 except Exception as e:
                     logger.error(f"Unexpected error during Mouser keyword search for item {bom_item.bom_item_id}: {e}", exc_info=True)
-                    status = 'processing_error' 
+                    status = 'processing_error'
 
             # Step 4: Evaluate Search Results with LLM
-            chosen_mpn = None
+            potential_matches = []
             if status == 'pending' and mouser_results:
                 try:
                     eval_prompt = llm_handler.format_evaluation_prompt(
                         part_info, 
                         project_name,
                         project_description, 
-                        full_bom_list, # Pass the full BOM list here
+                        full_bom_list,
                         mouser_results 
                     )
                     llm_response_eval = llm_handler.get_llm_response(eval_prompt)
-                    chosen_mpn = llm_handler.extract_mpn_from_eval(llm_response_eval)
-                    if not chosen_mpn:
-                        logger.warning(f"LLM did not select MPN for item {bom_item.bom_item_id}")
+                    potential_matches = llm_handler.parse_potential_matches_json(llm_response_eval)
+                    if not potential_matches:
+                        logger.warning(f"LLM did not select any MPNs for item {bom_item.bom_item_id}")
                         status = 'evaluation_failed'
                 except LlmApiError as e:
                     logger.error(f"LLM API error during evaluation for item {bom_item.bom_item_id}: {e}")
                     status = 'llm_error'
                 except Exception as e:
                     logger.error(f"Unexpected error during LLM evaluation for item {bom_item.bom_item_id}: {e}", exc_info=True)
-                    status = 'processing_error' 
-
-            # Step 5: Check DB / Get Final Part Details from Mouser by MPN
-            if status == 'pending' and chosen_mpn:
-                try:
-                    # First, check if the component already exists in our DB
-                    component_record = get_component_by_mpn(db, chosen_mpn)
-                    if component_record:
-                        logger.info(f"Found existing component in DB for MPN {chosen_mpn} (ID: {component_record.component_id}) for item {bom_item.bom_item_id}")
-                        status = 'matched'
-                        component_id = component_record.component_id
-                    else:
-                        # If not in DB, call Mouser API
-                        logger.info(f"MPN {chosen_mpn} not found in DB for item {bom_item.bom_item_id}, querying Mouser...")
-                        final_part_details = mouser_api.search_mouser_by_mpn(
-                            mpn=chosen_mpn,
-                            cache_manager=mouser_cache_manager,
-                            db=db
-                        )
-                        if final_part_details:
-                            # Found via Mouser API, now get/create the component record in DB
-                            component_data = {
-                                'mouser_part_number': final_part_details.get('Mouser Part Number'),
-                                'manufacturer_part_number': final_part_details.get('Manufacturer Part Number'), # Should match chosen_mpn
-                                'manufacturer_name': final_part_details.get('Manufacturer Name'),
-                                'description': final_part_details.get('Mouser Description'),
-                                'datasheet_url': final_part_details.get('Datasheet URL'),
-                                'price': final_part_details.get('Price'),
-                                'availability': final_part_details.get('Availability'),
-                            }
-                            component_data = {k: v for k, v in component_data.items() if v is not None}
-                            component_record = get_or_create_component(db, component_data)
-                            if component_record:
-                                logger.info(f"Created/Found component record for MPN {chosen_mpn} (ID: {component_record.component_id}) after Mouser lookup for item {bom_item.bom_item_id}")
-                                status = 'matched'
-                                component_id = component_record.component_id
-                            else:
-                                logger.error(f"Failed to get/create component for item {bom_item.bom_item_id}, MPN {chosen_mpn} after Mouser lookup")
-                                status = 'component_db_error'
-                        else:
-                            logger.warning(f"Mouser MPN search failed for MPN '{chosen_mpn}' (item {bom_item.bom_item_id})")
-                            status = 'mpn_lookup_failed'
-                except MouserApiError as e:
-                    logger.error(f"Mouser API error during MPN search for item {bom_item.bom_item_id}, MPN {chosen_mpn}: {e}")
-                    status = 'mouser_error'
-                except SQLAlchemyError as e:
-                    logger.error(f"Database error during component check/creation for item {bom_item.bom_item_id}, MPN {chosen_mpn}: {e}", exc_info=True)
-                    status = 'component_db_error' # Reuse status or create a new one like 'db_error'?
-                    db.rollback() # Rollback within this step if possible
-                except Exception as e:
-                    logger.error(f"Unexpected error during component check/creation for item {bom_item.bom_item_id}, MPN {chosen_mpn}: {e}", exc_info=True)
                     status = 'processing_error'
-                    db.rollback() # Rollback on unexpected errors too
 
-            # Step 6: Create BomItemMatch record
-            # Ensure status is not 'pending' before saving match
+            # Step 5: Create PotentialBomMatch records
+            if status == 'pending' and potential_matches:
+                try:
+                    for i, match in enumerate(potential_matches):
+                        mpn = match['mpn']
+                        component_id = mpn_to_component_id.get(mpn)
+                        
+                        # Create a new PotentialBomMatch record
+                        create_potential_bom_match(
+                            db=db,
+                            bom_item_id=bom_item.bom_item_id,
+                            rank=i + 1,  # 1-based ranking
+                            manufacturer_part_number=mpn,
+                            reason=match['reason'],
+                            selection_state='pending',  # Initial state
+                            component_id=component_id  # Link to the already stored component if available
+                        )
+                    status = 'matched'
+                except SQLAlchemyError as e:
+                    logger.error(f"Database error creating potential matches for item {bom_item.bom_item_id}: {e}", exc_info=True)
+                    status = 'db_save_error'
+                    db.rollback()
+                except Exception as e:
+                    logger.error(f"Unexpected error creating potential matches for item {bom_item.bom_item_id}: {e}", exc_info=True)
+                    status = 'processing_error'
+                    db.rollback()
+
+            # Step 6: Create BomItemMatch record with final status
             if status == 'pending':
                 logger.error(f"Item {bom_item.bom_item_id} reached save point with unexpected 'pending' status. Setting to 'error'.")
                 status = 'error'
             
             try:
-                # TODO: Consider if we need to delete/update existing matches if reprocessing
+                # Create a BomItemMatch record to track the overall status
                 create_bom_item_match(
                     db=db,
                     bom_item_id=bom_item.bom_item_id,
-                    component_id=component_id, # Will be None if no match/component created
+                    component_id=None,  # No specific component selected yet
                     match_status=status
                 )
-                db.commit() # Commit the match creation for this item
+                db.commit()
                 logger.info(f"Saved result for item {bom_item.bom_item_id} with status: {status}")
             except SQLAlchemyError as db_err:
                 logger.error(f"Database error saving final result for item {bom_item.bom_item_id}: {db_err}", exc_info=True)
-                db.rollback() # Rollback the match creation commit
-                status = 'db_save_error' # Overwrite status to reflect the final failure
+                db.rollback()
+                status = 'db_save_error'
             except Exception as e:
                 logger.error(f"Unexpected error saving final result for item {bom_item.bom_item_id}: {e}", exc_info=True)
                 db.rollback()
-                status = 'processing_error' # Or db_save_error?
 
-        except Exception as outer_err: # Catch any unexpected errors in the overall worker logic flow
+        except Exception as outer_err:
             logger.error(f"Unhandled exception in worker for item {bom_item.bom_item_id}: {outer_err}", exc_info=True)
             status = 'worker_uncaught_exception'
             try:
-                db.rollback() # Attempt rollback if session is still active
+                db.rollback()
             except Exception as rb_err:
                 logger.error(f"Error attempting rollback after unhandled worker exception for item {bom_item.bom_item_id}: {rb_err}")
 
-        # Return the final status determined by the processing steps
         return status
 
 def process_project_from_db(

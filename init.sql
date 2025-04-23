@@ -58,4 +58,20 @@ CREATE INDEX idx_bom_item_matches_bom_item_id ON bom_item_matches(bom_item_id);
 CREATE INDEX idx_bom_item_matches_component_id ON bom_item_matches(component_id);
 
 CREATE UNIQUE INDEX idx_mouser_cache_term_type ON mouser_api_cache (search_term, search_type);
-CREATE INDEX idx_mouser_cache_cached_at ON mouser_api_cache (cached_at); 
+CREATE INDEX idx_mouser_cache_cached_at ON mouser_api_cache (cached_at);
+
+-- Create table for potential BOM matches
+CREATE TABLE potential_bom_matches (
+    potential_match_id SERIAL PRIMARY KEY,
+    bom_item_id INTEGER REFERENCES bom_items(bom_item_id),
+    component_id INTEGER REFERENCES components(component_id),
+    rank INTEGER NOT NULL,
+    manufacturer_part_number VARCHAR(255) NOT NULL,
+    reason TEXT,
+    selection_state VARCHAR(50) NOT NULL DEFAULT 'proposed',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create index for potential_bom_matches
+CREATE INDEX idx_potential_bom_matches_bom_item_id ON potential_bom_matches (bom_item_id);
+CREATE INDEX idx_potential_bom_matches_component_id ON potential_bom_matches (component_id); 

@@ -163,6 +163,7 @@ def search_mouser_by_keyword(
             logging.warning(f"Failed to cache response for keyword '{keyword}': {cache_e}")
 
         # --- Parse Response ---
+        
         parts = raw_response_data.get('SearchResults', {}).get('Parts', [])
         logging.debug(f"Returning {len(parts)} parts from API for keyword '{keyword}'")
         return parts if parts else []
@@ -175,19 +176,52 @@ def search_mouser_by_keyword(
 def _parse_mouser_part_data(part_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Helper function to parse raw part data from Mouser API response."""
     if not part_data:
+        logging.warning("Empty part_data received in _parse_mouser_part_data")
         return None
+    
+    logging.info("===== PRICE DEBUGGING =====")
+    logging.info(f"Processing part: {part_data.get('ManufacturerPartNumber', 'Unknown MPN')}")
 
     # Extract price (find qty 1 or lowest break)
     price = None
     price_breaks = part_data.get('PriceBreaks', [])
+    logging.info(f"Raw price_breaks from Mouser: {json.dumps(price_breaks)}")
+    
     if price_breaks:
         # Sort by quantity and take the lowest
-        price_breaks.sort(key=lambda x: x.get('Quantity', float('inf')))
-        price_str = price_breaks[0].get('Price', 'N/A')
-        # Remove any existing $ symbol
-        price_str = price_str.replace('$', '')
-        # Store the numeric string or 'N/A', without adding '$'
-        price = price_str if price_str != 'N/A' else 'N/A'
+        try:
+            price_breaks.sort(key=lambda x: x.get('Quantity', float('inf')))
+            logging.info(f"Sorted price_breaks: {json.dumps(price_breaks)}")
+            
+            price_obj = price_breaks[0]
+            logging.info(f"Selected price object: {json.dumps(price_obj)}")
+            
+            price_str = price_obj.get('Price', 'N/A')
+            logging.info(f"Raw price string from Mouser: '{price_str}'")
+            
+            # Remove any existing $ symbol
+            price_str = price_str.replace('$', '')
+            logging.info(f"Cleaned price string: '{price_str}'")
+            
+            # Try to convert to float if possible
+            if price_str != 'N/A':
+                try:
+                    price = float(price_str)
+                    logging.info(f"Successfully converted price to float: {price}")
+                except (ValueError, TypeError) as e:
+                    logging.error(f"Failed to convert price '{price_str}' to float: {e}")
+                    price = None
+            # If conversion failed or was N/A, keep it as None
+            else:
+                logging.info("Price was 'N/A', setting to None")
+        except Exception as e:
+            logging.error(f"Error processing price_breaks: {e}")
+            price = None
+    else:
+        logging.warning("No price breaks found in Mouser data")
+    
+    logging.info(f"Final price value: {price}")
+    logging.info("===== END PRICE DEBUGGING =====")
 
     # Extract availability
     availability = "Unknown"
@@ -200,15 +234,18 @@ def _parse_mouser_part_data(part_data: Dict[str, Any]) -> Optional[Dict[str, Any
     except (ValueError, TypeError):
         pass # Keep availability as "Unknown"
 
-    return {
+    result = {
         'Mouser Part Number': part_data.get('MouserPartNumber', ''),
         'Manufacturer Part Number': part_data.get('ManufacturerPartNumber', ''),
         'Manufacturer Name': part_data.get('Manufacturer', ''),
         'Mouser Description': part_data.get('Description', ''),
         'Datasheet URL': part_data.get('DataSheetUrl', ''),
-        'Price': price or 'N/A',
+        'Price': price,  # Now returns float or None
         'Availability': availability
     }
+    
+    logging.info(f"Final parsed data: {result}")
+    return result
 
 def search_mouser_by_mpn(
     mpn: str,
@@ -226,6 +263,7 @@ def search_mouser_by_mpn(
             logging.info(f"Cache hit for MPN: {mpn}")
             parts = cached_response.get('SearchResults', {}).get('Parts', [])
             if parts:
+                logging.info(f"Raw part data from cache: {parts[0]}")
                 parsed_data = _parse_mouser_part_data(parts[0])
                 logging.debug(f"Returning parsed data from cache for MPN '{mpn}'")
                 return parsed_data
@@ -265,6 +303,8 @@ def search_mouser_by_mpn(
             search_term=mpn,
             search_type='mpn'
         )
+        
+        logging.info(f"API response structure: {list(raw_response_data.keys())}")
 
         # --- Cache Write (only if successful API call without API errors) ---
         try:
@@ -285,6 +325,7 @@ def search_mouser_by_mpn(
             # Consider caching the "not found" result here if needed
             return None # MPN not found
 
+        logging.info(f"Raw part data from API: {parts[0]}")
         parsed_data = _parse_mouser_part_data(parts[0])
         logging.debug(f"Returning parsed data from API for MPN '{mpn}'")
         return parsed_data

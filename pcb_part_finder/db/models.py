@@ -48,6 +48,9 @@ class BomItem(Base):
     
     # Relationship to matches
     matches = relationship("BomItemMatch", back_populates="bom_item")
+    
+    # Relationship to potential matches
+    potential_matches = relationship("PotentialBomMatch", back_populates="bom_item", cascade="all, delete-orphan")
 
 class Component(Base):
     """
@@ -97,4 +100,29 @@ class BomItemMatch(Base):
 
     # Relationships
     bom_item = relationship("BomItem", back_populates="matches")
-    component = relationship("Component", back_populates="matches") 
+    component = relationship("Component", back_populates="matches")
+
+class PotentialBomMatch(Base):
+    """
+    SQLAlchemy model for the potential_bom_matches table.
+    Represents a potential match between a BOM item and a component.
+    """
+    __tablename__ = 'potential_bom_matches'
+    __table_args__ = (
+        Index('idx_potential_bom_matches_bom_item_id', 'bom_item_id'),
+        Index('idx_potential_bom_matches_component_id', 'component_id'),
+    )
+
+    potential_match_id = Column(Integer, primary_key=True)
+    bom_item_id = Column(Integer, ForeignKey('bom_items.bom_item_id'), index=True, nullable=False)
+    component_id = Column(Integer, ForeignKey('components.component_id'), index=True, nullable=True)
+    rank = Column(Integer, nullable=False)
+    manufacturer_part_number = Column(String(255), nullable=False)
+    reason = Column(Text, nullable=True)
+    selection_state = Column(String(50), nullable=False, default='proposed')
+    created_at = Column(TIMESTAMP, default=datetime.datetime.utcnow)
+
+    # Relationship back to BOM item
+    bom_item = relationship("BomItem", back_populates="potential_matches")
+    # Relationship to component
+    component = relationship("Component", backref="potential_matches") 
