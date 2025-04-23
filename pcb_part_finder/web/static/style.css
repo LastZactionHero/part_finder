@@ -483,4 +483,134 @@ a:hover {
     padding: 1.5rem;
     border-radius: 0.75rem;
     background-color: var(--background-color);
+}
+
+/* Expandable details styling */
+.clickable {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.clickable:hover {
+    background-color: #333333 !important;
+}
+
+.expanded {
+    background-color: #333333 !important;
+}
+
+.expanded-details {
+    background-color: #222222;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.details-content {
+    padding: 1.5rem;
+    animation: slideDown 0.3s ease-in-out;
+}
+
+.details-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-bottom: 1.5rem;
+}
+
+@media (max-width: 768px) {
+    .details-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.details-section {
+    background-color: #2a2a2a;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.details-section h3 {
+    margin-bottom: 1rem;
+    color: var(--text-color);
+    font-size: 1.1rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+.details-section p {
+    margin-bottom: 0.75rem;
+    line-height: 1.6;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.details-section p strong {
+    display: inline-block;
+    margin-right: 0.5rem;
+}
+
+/* Fix text overflow in reason and description */
+.details-section p:nth-child(4),  /* Match Reason */
+.details-section p:nth-child(5) { /* Description */
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+}
+
+/* Ensure potential match rows can be seen properly */
+.potential-match-row td:nth-child(2) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 0;
+}
+
+/* But display full text in expanded details */
+.expanded-details td {
+    white-space: normal;
+    overflow: visible;
+    max-width: none;
+}
+
+.details-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.details-button {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-align: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: var(--shadow-sm);
+}
+
+.details-button:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    text-decoration: none;
+    color: white;
+}
+
+.details-button.disabled {
+    background: #444444;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideDown {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
 } 

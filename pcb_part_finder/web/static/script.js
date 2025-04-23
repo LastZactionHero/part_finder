@@ -187,6 +187,66 @@ async function getProjectStatus(projectId) {
     }
 }
 
+// Toggle expanded details for potential match
+function toggleExpandedDetails(row, potentialMatch) {
+    // Check if details are already expanded
+    const nextRow = row.nextElementSibling;
+    if (nextRow && nextRow.classList.contains('expanded-details')) {
+        // Remove the expanded details row
+        nextRow.remove();
+        row.classList.remove('expanded');
+        return;
+    }
+    
+    // Create expanded details row
+    const detailsRow = document.createElement('tr');
+    detailsRow.classList.add('expanded-details');
+    
+    // Create a cell that spans all columns
+    const detailsCell = document.createElement('td');
+    detailsCell.setAttribute('colspan', '8');
+    
+    // Create details content
+    const detailsContent = document.createElement('div');
+    detailsContent.classList.add('details-content');
+    
+    // Add details information
+    detailsContent.innerHTML = `
+        <div class="details-grid">
+            <div class="details-section">
+                <h3>Component Details</h3>
+                <p><strong>Manufacturer Part:</strong> ${potentialMatch.manufacturer_part_number || 'N/A'}</p>
+                <p><strong>Mouser Part:</strong> ${potentialMatch.mouser_part_number || 'N/A'}</p>
+                <p><strong>Manufacturer:</strong> ${potentialMatch.manufacturer_name || 'N/A'}</p>
+                <p><strong>Price:</strong> ${potentialMatch.price ? `$${potentialMatch.price.toFixed(2)}` : 'N/A'}</p>
+                <p><strong>Availability:</strong> ${potentialMatch.availability || 'N/A'}</p>
+            </div>
+            
+            <div class="details-section">
+                <h3>Match Information</h3>
+                <p><strong>Rank:</strong> ${potentialMatch.rank || 'N/A'}</p>
+                <p><strong>Selection State:</strong> ${potentialMatch.selection_state || 'pending'}</p>
+                <p><strong>Match Reason:</strong> ${potentialMatch.reason || 'No reason provided'}</p>
+                <p><strong>Description:</strong> ${potentialMatch.mouser_description || 'No description available'}</p>
+            </div>
+        </div>
+        
+        <div class="details-actions">
+            ${potentialMatch.datasheet_url ? 
+                `<a href="${potentialMatch.datasheet_url}" target="_blank" class="details-button">View Datasheet</a>` : 
+                '<span class="details-button disabled">No Datasheet Available</span>'}
+            <a href="https://www.mouser.com/ProductDetail/${potentialMatch.mouser_part_number}" target="_blank" class="details-button">View on Mouser</a>
+        </div>
+    `;
+    
+    detailsCell.appendChild(detailsContent);
+    detailsRow.appendChild(detailsCell);
+    
+    // Insert after the current row
+    row.parentNode.insertBefore(detailsRow, row.nextSibling);
+    row.classList.add('expanded');
+}
+
 // Update results table
 function updateResultsTable(components) {
     resultsTable.innerHTML = ''; // Clear existing rows
@@ -286,6 +346,11 @@ function updateResultsTable(components) {
                 const potentialRow = resultsTable.insertRow();
                 potentialRow.classList.add('potential-match-row');
                 potentialRow.classList.add(`rank-${potentialMatch.rank}`);
+                // Store the potential match data in the row for expansion
+                potentialRow.dataset.potentialMatch = JSON.stringify(potentialMatch);
+                
+                // Make row clickable for expanding details
+                potentialRow.classList.add('clickable');
 
                 // Create cells for the potential match
                 const potentialQtyCell = potentialRow.insertCell();
@@ -315,10 +380,18 @@ function updateResultsTable(components) {
                     link.href = `https://www.mouser.com/ProductDetail/${potentialMatch.mouser_part_number}`;
                     link.textContent = potentialMatch.mouser_part_number;
                     link.target = '_blank';
+                    link.addEventListener('click', (e) => {
+                        e.stopPropagation(); // Prevent row click when clicking the link
+                    });
                     potentialMouserCell.appendChild(link);
                 } else {
                     potentialMouserCell.textContent = 'N/A';
                 }
+                
+                // Add click event to expand details
+                potentialRow.addEventListener('click', () => {
+                    toggleExpandedDetails(potentialRow, potentialMatch);
+                });
             });
         }
     });
